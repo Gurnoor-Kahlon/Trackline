@@ -1,0 +1,54 @@
+name: trackline
+
+# Local development infrastructure only. The Spring Boot API and the Next.js web
+# app are run natively (mvnw / pnpm dev) for fast reloads; a `full` profile that
+# containerises them is added in Milestone 18.
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: trackline-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-trackline}
+      POSTGRES_USER: ${POSTGRES_USER:-trackline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # -d/-U are required: without them pg_isready reports ready while the
+      # init scripts are still running, which breaks depends_on ordering.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-trackline} -d ${POSTGRES_DB:-trackline}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: trackline-redis
+    command:
+      # Live state is ephemeral and reconstructed on the next ingestion cycle,
+      # so persistence is off deliberately. PostgreSQL owns everything durable.
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
