@@ -1,0 +1,10 @@
+# Deterministic test configuration: no external dependency, fixed CORS origin.
+trackline:
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+
+logging:
+  level:
+    ca.trackline: INFO
+    org.springframework.test: WARN

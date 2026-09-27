@@ -1,0 +1,33 @@
+# Production. Origins and port come from the environment; nothing is defaulted to
+# a permissive value. Logs are emitted as ECS JSON so CloudWatch can query them
+# by field — this uses Spring Boot's built-in structured logging, no extra
+# dependency or logback XML.
+trackline:
+  cors:
+    allowed-origins: ${TRACKLINE_CORS_ALLOWED_ORIGINS}
+
+# Kept on deliberately: Trackline's API is public and read-only, so a browsable
+# contract is a feature rather than exposure. Set explicitly so it is a decision
+# rather than a framework default.
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    ca.trackline: INFO
+    org.springframework.web: WARN

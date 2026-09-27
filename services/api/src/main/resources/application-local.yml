@@ -1,0 +1,19 @@
+# Local development. Readable logs, the metrics endpoint for inspection, and the
+# Next.js dev server allowed through CORS.
+trackline:
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+      - http://127.0.0.1:3000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,loggers
+
+logging:
+  level:
+    ca.trackline: DEBUG
+  pattern:
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(%5p) %clr(%-40.40logger{39}){cyan} %m%n%wEx"

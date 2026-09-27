@@ -1,0 +1,54 @@
+spring:
+  application:
+    name: trackline-api
+  profiles:
+    default: local
+  jackson:
+    default-property-inclusion: always
+    serialization:
+      write-dates-as-timestamps: false
+  mvc:
+    problemdetails:
+      enabled: true
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: ${API_PORT:8080}
+  error:
+    # Errors are produced exclusively by the RFC 7807 handler; the servlet
+    # container must never render its own page or leak internals.
+    whitelabel:
+      enabled: false
+    include-stacktrace: never
+    include-message: never
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /api-docs/ui
+
+info:
+  app:
+    name: Trackline
+    description: Real-time Toronto transit intelligence
+
+logging:
+  level:
+    ca.trackline: INFO
