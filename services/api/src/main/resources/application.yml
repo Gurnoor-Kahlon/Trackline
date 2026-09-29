@@ -3,6 +3,36 @@ spring:
     name: trackline-api
   profiles:
     default: local
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:trackline}
+    username: ${POSTGRES_USER:trackline}
+    # No default: a missing database password must stop startup, not fall back to
+    # a guessable one.
+    password: ${POSTGRES_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:10}
+      # Ingestion holds a connection for a whole cycle, so a request must fail
+      # fast rather than queue behind it indefinitely.
+      connection-timeout: 5000
+  jpa:
+    hibernate:
+      # The schema is owned by Flyway migrations. Hibernate only checks that the
+      # entities match what the migrations produced, and never alters anything.
+      ddl-auto: validate
+    # Lazy loading must not be triggered while rendering a response; every read
+    # path fetches what it needs explicitly.
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 500
+        order_inserts: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # Every environment starts from an empty database and migrates forward, so
+    # out-of-order or baselined migrations are never expected.
+    validate-on-migrate: true
   jackson:
     default-property-inclusion: always
     serialization:

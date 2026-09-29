@@ -16,9 +16,11 @@ spacing, bunching detection, and route health.
 ## Current state
 
 Local infrastructure (PostgreSQL + PostGIS, Redis) runs via Docker Compose. The
-Spring Boot API runs and serves `GET /api/v1/network/status`, which reports
-nothing observed with a `NO_DATA` provenance because feed ingestion does not
-exist yet. The web application is not scaffolded yet.
+Spring Boot API runs, migrates its schema with Flyway on startup, and serves
+`GET /api/v1/network/status`, which reports nothing observed with a `NO_DATA`
+provenance because feed ingestion does not exist yet. The database schema for the
+static TTC network exists but holds no data until the GTFS importer is built. The
+web application is not scaffolded yet.
 
 ## Planned stack
 
@@ -75,13 +77,23 @@ To discard the database entirely, add `-v`.
 
 ### API
 
-The API does not use the database yet, so it runs independently of Compose:
+The API needs the database, so start Compose first. It reads its connection
+settings from the same environment variables, which are not exported into your
+shell automatically:
 
 ```bash
-cd services/api && ./mvnw spring-boot:run
+cd services/api && set -a && . ../../.env && set +a && ./mvnw spring-boot:run
 ```
 
-It listens on 8080 with the `local` profile by default.
+In PowerShell:
+
+```powershell
+Get-Content ..\..\.env | Where-Object { $_ -match '=' -and $_ -notmatch '^#' } | ForEach-Object { $p = $_.Split('=',2); [Environment]::SetEnvironmentVariable($p[0].Trim(), $p[1].Trim()) }; .\mvnw spring-boot:run
+```
+
+It listens on 8080 with the `local` profile by default. Flyway applies any
+pending migrations at startup and the schema is never generated from the
+entities — Hibernate only validates that the two agree.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -90,7 +102,8 @@ It listens on 8080 with the `local` profile by default.
 | `GET /api-docs` | OpenAPI 3.1 document |
 | `GET /api-docs/ui` | Swagger UI |
 
-Run the tests:
+Run the tests. Integration tests start their own PostGIS container through
+Testcontainers, so Docker must be running but Compose does not have to be:
 
 ```bash
 cd services/api && ./mvnw verify
@@ -122,6 +135,25 @@ assume a payload is current:
 Errors are RFC 7807 problem details (`application/problem+json`) and never
 include a stack trace or exception type; unexpected failures carry an `errorId`
 that appears in the logs.
+
+### Database
+
+Migrations live in `services/api/src/main/resources/db/migration` and are the only
+thing that changes the schema. `spring.jpa.hibernate.ddl-auto` is `validate`, so a
+mismatch between an entity and a migration fails the build rather than silently
+altering a table.
+
+The container publishes Postgres on **55432**, not 5432, so it cannot be shadowed
+by a PostgreSQL installed natively on the machine — that failure mode is quiet and
+confusing, because connections succeed against the wrong server. Change
+`POSTGRES_PORT` in `.env` if you need a different port; it feeds both the
+published port and the API's JDBC URL.
+
+To inspect the schema:
+
+```bash
+docker compose exec postgres psql -U trackline -d trackline -c "\dt"
+```
 
 ## Licence
 
