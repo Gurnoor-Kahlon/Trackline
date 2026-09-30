@@ -19,8 +19,13 @@ Local infrastructure (PostgreSQL + PostGIS, Redis) runs via Docker Compose. The
 Spring Boot API runs, migrates its schema with Flyway on startup, and serves
 `GET /api/v1/network/status`, which reports nothing observed with a `NO_DATA`
 provenance because feed ingestion does not exist yet. The database schema for the
-static TTC network exists but holds no data until the GTFS importer is built. The
-web application is not scaffolded yet.
+static TTC network exists but holds no data until the GTFS importer is built.
+
+The Next.js application renders the shell and design system: header, navigation,
+search affordance, light and dark themes, and the route, status, freshness, card,
+sheet, skeleton, empty and error primitives. It does not call the API yet, so
+every data region on the home page states that nothing has been measured rather
+than showing placeholder figures.
 
 ## Planned stack
 
@@ -135,6 +140,31 @@ assume a payload is current:
 Errors are RFC 7807 problem details (`application/problem+json`) and never
 include a stack trace or exception type; unexpected failures carry an `errorId`
 that appears in the logs.
+
+### Web
+
+```bash
+cd apps/web && corepack pnpm install && corepack pnpm dev
+```
+
+It serves on 3000. The app does not talk to the API yet, so neither Compose nor
+the API needs to be running.
+
+| Command | Purpose |
+| --- | --- |
+| `pnpm dev` | Development server |
+| `pnpm build` | Production build |
+| `pnpm lint` | ESLint, including the jsx-a11y rules |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm test` | Vitest component and unit tests |
+
+pnpm is provided by Corepack, which ships with Node, so no global install is
+needed — `corepack pnpm <command>` works anywhere in `apps/web`.
+
+Design tokens live in `src/app/globals.css`. Surfaces stay near-neutral so the
+only saturated colour on screen carries meaning: a route's own GTFS colour, or a
+service status. Status is never encoded in colour alone — each state also has a
+distinct glyph and a text label.
 
 ### Database
 

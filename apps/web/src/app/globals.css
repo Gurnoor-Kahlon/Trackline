@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+/*
+ * Trackline design tokens.
+ *
+ * Two rules shape this palette. Surfaces stay near-neutral so the only saturated
+ * colour on a screen carries meaning: a route's own GTFS colour, or a service
+ * status. And status is never encoded in colour alone — every status also has a
+ * distinct glyph and a text label, so it survives colour blindness, greyscale
+ * printing and glare.
+ */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Surfaces and text. Light theme values; dark overrides follow. */
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f3f5f7;
+  --color-surface-raised: #ffffff;
+  --color-surface-inset: #e9edf1;
+  --color-border: #dde3e9;
+  --color-border-strong: #c3ccd6;
+  --color-ink: #12171d;
+  --color-ink-muted: #58616c;
+  --color-ink-subtle: #7b848f;
+
+  /* Brand accent: used for focus, links and the wordmark. Not a status colour. */
+  --color-accent: #0a58cf;
+  --color-accent-hover: #0847a8;
+  --color-accent-quiet: #e8f0fd;
+
+  /* Service status. Paired with glyphs in ServiceStatusPill. */
+  --color-status-excellent: #0b6b52;
+  --color-status-excellent-quiet: #e3f3ee;
+  --color-status-normal: #345070;
+  --color-status-normal-quiet: #e8eef5;
+  --color-status-unstable: #97590a;
+  --color-status-unstable-quiet: #fcf0dd;
+  --color-status-major: #ad2118;
+  --color-status-major-quiet: #fceae8;
+  --color-status-unknown: #5c646e;
+  --color-status-unknown-quiet: #eef0f2;
+
+  /* Data freshness, shown next to anything feed-derived. */
+  --color-stale: #97590a;
+  --color-stale-quiet: #fcf0dd;
+
+  --radius-card: 0.75rem;
+  --radius-pill: 9999px;
+
+  /* Route numbers are the primary wayfinding element, so they get their own
+     type step rather than borrowing a body size. */
+  --text-route-sm: 0.9375rem;
+  --text-route-md: 1.25rem;
+  --text-route-lg: 1.875rem;
+  --text-route-xl: 2.75rem;
+}
+
+/*
+ * Dark theme. Applied when the OS prefers dark and the user has not chosen
+ * light, or when the user explicitly chose dark.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-surface: #0f1318;
+    --color-surface-sunken: #0a0d11;
+    --color-surface-raised: #161c23;
+    --color-surface-inset: #1e252e;
+    --color-border: #232b34;
+    --color-border-strong: #364050;
+    --color-ink: #e9eef4;
+    --color-ink-muted: #9aa4b0;
+    --color-ink-subtle: #7b848f;
+
+    --color-accent: #7aa9ff;
+    --color-accent-hover: #9cc0ff;
+    --color-accent-quiet: #16233a;
+
+    --color-status-excellent: #58c9a5;
+    --color-status-excellent-quiet: #12271f;
+    --color-status-normal: #9fb8d4;
+    --color-status-normal-quiet: #182230;
+    --color-status-unstable: #e3a54a;
+    --color-status-unstable-quiet: #2a2113;
+    --color-status-major: #f4867c;
+    --color-status-major-quiet: #301815;
+    --color-status-unknown: #97a0ab;
+    --color-status-unknown-quiet: #1b2027;
+
+    --color-stale: #e3a54a;
+    --color-stale-quiet: #2a2113;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-surface: #0f1318;
+  --color-surface-sunken: #0a0d11;
+  --color-surface-raised: #161c23;
+  --color-surface-inset: #1e252e;
+  --color-border: #232b34;
+  --color-border-strong: #364050;
+  --color-ink: #e9eef4;
+  --color-ink-muted: #9aa4b0;
+  --color-ink-subtle: #7b848f;
+
+  --color-accent: #7aa9ff;
+  --color-accent-hover: #9cc0ff;
+  --color-accent-quiet: #16233a;
+
+  --color-status-excellent: #58c9a5;
+  --color-status-excellent-quiet: #12271f;
+  --color-status-normal: #9fb8d4;
+  --color-status-normal-quiet: #182230;
+  --color-status-unstable: #e3a54a;
+  --color-status-unstable-quiet: #2a2113;
+  --color-status-major: #f4867c;
+  --color-status-major-quiet: #301815;
+  --color-status-unknown: #97a0ab;
+  --color-status-unknown-quiet: #1b2027;
+
+  --color-stale: #e3a54a;
+  --color-stale-quiet: #2a2113;
+}
+
+@layer base {
+  html {
+    color-scheme: light dark;
+  }
+
+  body {
+    background-color: var(--color-surface-sunken);
+    color: var(--color-ink);
+  }
+
+  /*
+   * Focus is visible everywhere, including on the map controls added later.
+   * :focus-visible rather than :focus so a mouse click does not leave a ring,
+   * but keyboard and programmatic focus always do.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Numbers that represent the same thing in a column must line up. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+ * Anyone who has asked their system to reduce motion gets no transitions and no
+ * vehicle-marker tweening; positions snap instead.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
