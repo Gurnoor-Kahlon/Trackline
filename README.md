@@ -18,8 +18,10 @@ spacing, bunching detection, and route health.
 Local infrastructure (PostgreSQL + PostGIS, Redis) runs via Docker Compose. The
 Spring Boot API runs, migrates its schema with Flyway on startup, and serves
 `GET /api/v1/network/status`, which reports nothing observed with a `NO_DATA`
-provenance because feed ingestion does not exist yet. The database schema for the
-static TTC network exists but holds no data until the GTFS importer is built.
+provenance because realtime ingestion does not exist yet. The TTC schedule feed
+can be imported: one command loads the whole network — 236 routes, 9,409 stops,
+138,036 trips and 4,357,307 scheduled calls — into PostgreSQL. Nothing reads that
+data over the API yet.
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
@@ -165,6 +167,35 @@ Design tokens live in `src/app/globals.css`. Surfaces stay near-neutral so the
 only saturated colour on screen carries meaning: a route's own GTFS colour, or a
 service status. Status is never encoded in colour alone — each state also has a
 distinct glyph and a text label.
+
+### Importing the TTC schedule
+
+The schedule feed is loaded on demand, not at startup — it is a monthly operator
+task, and importing on boot would re-download 36 MB on every restart and make
+startup depend on a third party being reachable.
+
+```bash
+cd services/api && set -a && . ../../.env && set +a && ./mvnw spring-boot:run -Dspring-boot.run.arguments=--import-gtfs
+```
+
+The archive is located through Toronto's open-data catalogue rather than a pinned
+URL, downloaded, hashed, and loaded into an empty network inside one transaction.
+If anything fails, the transaction rolls back and the previously active network is
+untouched. If the published archive's SHA-256 matches the active version, nothing
+is reloaded.
+
+While the API is running, the same import can be triggered with:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/admin/gtfs/import
+```
+
+That endpoint is registered only when `trackline.gtfs.static.admin-endpoint` is
+true. It is off in the production profile, because no authentication exists yet
+and re-downloading the feed and rewriting the network is not something an
+anonymous caller should be able to do.
+
+Measured timings for a real import are in [docs/performance.md](docs/performance.md).
 
 ### Database
 

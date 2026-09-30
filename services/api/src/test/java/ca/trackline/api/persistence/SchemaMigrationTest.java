@@ -31,7 +31,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
         assertThat(applied).containsExactly(
                 "1 extensions",
                 "2 static network",
-                "3 ingestion runs");
+                "3 ingestion runs",
+                "4 shape points");
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
@@ -65,6 +66,7 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "ingestion_runs",
                 "route_shapes",
                 "routes",
+                "shape_points",
                 "stations",
                 "stop_times",
                 "stops",

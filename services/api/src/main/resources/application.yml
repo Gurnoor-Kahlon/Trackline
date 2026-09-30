@@ -44,6 +44,22 @@ spring:
     virtual:
       enabled: true
 
+trackline:
+  gtfs:
+    static:
+      # Resolved through the catalogue rather than a pinned download URL, so a
+      # republished resource does not silently break the import.
+      catalogue-url: https://ckan0.cf.opendata.inter.prod-toronto.ca/api/3/action/package_show
+      dataset-id: ttc-routes-and-schedules
+      request-timeout: 5m
+      # The real archive is about 36 MB; the caps leave generous headroom while
+      # still refusing a download or an entry that has no business being this big.
+      max-archive-bytes: 268435456
+      max-entry-bytes: 1073741824
+      max-entries: 64
+      copy-batch-bytes: 8388608
+      admin-endpoint: true
+
 server:
   port: ${API_PORT:8080}
   error:

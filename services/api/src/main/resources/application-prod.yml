@@ -15,6 +15,13 @@ springdoc:
   swagger-ui:
     enabled: true
 
+trackline:
+  gtfs:
+    static:
+      # No authentication exists yet, so the manual import endpoint is simply not
+      # registered here. The command-line runner remains available on the host.
+      admin-endpoint: false
+
 management:
   endpoints:
     web:

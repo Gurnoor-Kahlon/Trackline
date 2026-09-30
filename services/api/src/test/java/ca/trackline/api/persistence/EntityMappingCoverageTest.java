@@ -24,11 +24,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EntityMappingCoverageTest extends PostgisIntegrationTest {
 
     /**
-     * Tables Flyway creates that intentionally have no entity: PostGIS and Flyway
-     * own these, and Trackline only reads them through SQL in tests.
+     * Tables that intentionally have no entity.
+     *
+     * <p>PostGIS and Flyway own the first two. {@code shape_points} is staging for
+     * the GTFS import: it is written by COPY and read by the geometry derivation's
+     * SQL, so an entity would be unused code rather than a mapping anyone uses.
      */
     private static final Set<String> TABLES_WITHOUT_ENTITIES =
-            Set.of("spatial_ref_sys", "flyway_schema_history");
+            Set.of("spatial_ref_sys", "flyway_schema_history", "shape_points");
 
     @Autowired
     private EntityManager entityManager;
