@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.sql.DataSource;
 
+import ca.trackline.api.gtfs.schedule.derive.NetworkDerivation;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
@@ -48,7 +49,8 @@ public class GtfsImportService {
      */
     private static final String TRUNCATE_NETWORK = """
             TRUNCATE stop_times, shape_points, trips, calendar_exceptions,
-                     calendar_services, route_shapes, stops, stations, routes
+                     calendar_services, route_scheduled_headways, route_shapes,
+                     stops, stations, routes
             """;
 
     private final DataSource dataSource;
@@ -56,6 +58,7 @@ public class GtfsImportService {
     private final GtfsFeedResolver resolver;
     private final GtfsFeedDownloader downloader;
     private final GtfsStaticProperties properties;
+    private final NetworkDerivation derivation;
     private final AtomicBoolean running = new AtomicBoolean();
 
     public GtfsImportService(
@@ -63,12 +66,14 @@ public class GtfsImportService {
             JdbcTemplate jdbc,
             GtfsFeedResolver resolver,
             GtfsFeedDownloader downloader,
-            GtfsStaticProperties properties) {
+            GtfsStaticProperties properties,
+            NetworkDerivation derivation) {
         this.dataSource = dataSource;
         this.jdbc = jdbc;
         this.resolver = resolver;
         this.downloader = downloader;
         this.properties = properties;
+        this.derivation = derivation;
     }
 
     public boolean isRunning() {
@@ -137,6 +142,16 @@ public class GtfsImportService {
                     }
 
                     LocalDate[] window = serviceWindow(connection);
+
+                    // Derived inside the same transaction: an active network with
+                    // no geometry could not place a vehicle on a route or draw a
+                    // map, so the two become visible together or not at all.
+                    NetworkDerivation.DerivationSummary derived =
+                            derivation.derive(connection, feedVersionId, window[0], window[1]);
+                    rowCounts.put("route_shapes", derived.shapes());
+                    rowCounts.put("stations", derived.stations());
+                    rowCounts.put("route_scheduled_headways", derived.headwayEntries());
+
                     activate(connection, feedVersionId, rowCounts, window[0], window[1]);
 
                     connection.commit();

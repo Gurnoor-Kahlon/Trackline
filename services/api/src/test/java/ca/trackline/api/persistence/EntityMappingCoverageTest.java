@@ -26,12 +26,14 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
     /**
      * Tables that intentionally have no entity.
      *
-     * <p>PostGIS and Flyway own the first two. {@code shape_points} is staging for
-     * the GTFS import: it is written by COPY and read by the geometry derivation's
-     * SQL, so an entity would be unused code rather than a mapping anyone uses.
+     * <p>PostGIS and Flyway own the first two. The other two belong to the import:
+     * {@code shape_points} is staging written by COPY and read by the geometry
+     * derivation, and {@code route_scheduled_headways} is a derived lookup written
+     * in bulk and read by aggregate queries. Both are SQL all the way through, so
+     * an entity would be unused code rather than a mapping anyone uses.
      */
-    private static final Set<String> TABLES_WITHOUT_ENTITIES =
-            Set.of("spatial_ref_sys", "flyway_schema_history", "shape_points");
+    private static final Set<String> TABLES_WITHOUT_ENTITIES = Set.of(
+            "spatial_ref_sys", "flyway_schema_history", "shape_points", "route_scheduled_headways");
 
     @Autowired
     private EntityManager entityManager;

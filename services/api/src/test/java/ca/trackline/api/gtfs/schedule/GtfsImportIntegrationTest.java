@@ -72,7 +72,8 @@ class GtfsImportIntegrationTest extends PostgisIntegrationTest {
     private void truncateNetwork() {
         jdbc.execute("""
                 TRUNCATE stop_times, shape_points, trips, calendar_exceptions,
-                         calendar_services, route_shapes, stops, stations, routes
+                         calendar_services, route_scheduled_headways, route_shapes,
+                         stops, stations, routes
                 """);
     }
 

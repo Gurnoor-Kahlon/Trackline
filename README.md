@@ -20,8 +20,10 @@ Spring Boot API runs, migrates its schema with Flyway on startup, and serves
 `GET /api/v1/network/status`, which reports nothing observed with a `NO_DATA`
 provenance because realtime ingestion does not exist yet. The TTC schedule feed
 can be imported: one command loads the whole network — 236 routes, 9,409 stops,
-138,036 trips and 4,357,307 scheduled calls — into PostgreSQL. Nothing reads that
-data over the API yet.
+138,036 trips and 4,357,307 scheduled calls — into PostgreSQL, then derives what
+the feed does not provide: 1,571 route linestrings, 108 stations clustered from
+platform stops, and 20,945 scheduled headway entries. Nothing reads that data over
+the API yet.
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
@@ -194,6 +196,12 @@ That endpoint is registered only when `trackline.gtfs.static.admin-endpoint` is
 true. It is off in the production profile, because no authentication exists yet
 and re-downloading the feed and rewriting the network is not something an
 anonymous caller should be able to do.
+
+The import also derives three things the TTC feed does not publish — route
+geometry, stations, and scheduled headways — inside the same transaction, so an
+active network always has the geometry needed to place a vehicle on a route. The
+rules behind each derivation, and the measurements that motivated them, are in
+[docs/data-sources.md](docs/data-sources.md).
 
 Measured timings for a real import are in [docs/performance.md](docs/performance.md).
 

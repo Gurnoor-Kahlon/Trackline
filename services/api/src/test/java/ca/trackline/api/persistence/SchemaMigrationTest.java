@@ -32,7 +32,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "1 extensions",
                 "2 static network",
                 "3 ingestion runs",
-                "4 shape points");
+                "4 shape points",
+                "5 scheduled headways");
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
@@ -64,6 +65,7 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "calendar_services",
                 "gtfs_feed_versions",
                 "ingestion_runs",
+                "route_scheduled_headways",
                 "route_shapes",
                 "routes",
                 "shape_points",

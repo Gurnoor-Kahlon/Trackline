@@ -128,7 +128,31 @@ Every entity carries `trip`, `stop_time_update`s and `timestamp`. 24,570 of
 5. **Trackline owns alert lifecycle** (`first_seen_at` / `last_seen_at` /
    `resolved_at`), since the feed provides no active period.
 
-## 4. Still to verify
+## 4. What Trackline derives, and how
+
+Three things the feed does not provide are computed at import time. Each is
+recorded here because each is an inference, not a fact the agency published.
+
+| Derived | Rule | Result on the 2026-09-30 feed |
+| --- | --- | --- |
+| Route geometry | Shape points aggregated per `shape_id`; attributed to the route and direction whose trips use it most; the most-used variant per route and direction is marked primary, ties broken by shape id | 1,571 shapes, 470 primary, 2 loops |
+| Stations | Only stops whose name ends in "Platform"; station is the name up to and including "Station"; a name group is split further if members are more than 250 m apart | 108 stations from 231 platforms; 3 platforms left unattached |
+| Scheduled headways | Median gap between consecutive first departures, per route, direction, clock hour and day type, read from one representative date per day type (Wednesday, Saturday, Sunday) | 20,945 entries |
+
+Two measured facts shaped these rules:
+
+- **No shape is shared between routes or directions** in the current feed (0 of
+  1,571), so attribution is unambiguous today. The code still resolves by trip
+  count because the feed does not guarantee it.
+- **637 stop names mention a station but are not platforms** — "Aukland Rd at
+  Kipling GO Station" is a bus stop. Grouping on the word "Station" would put bus
+  stops inside subway stations, so only the platform pattern is used.
+
+Route length is measured on the 4326 geography, never on the 3857 geometry: Web
+Mercator inflates distance at Toronto's latitude by a **measured factor of 1.384**,
+which would overstate every route length and every spacing figure derived from it.
+
+## 5. Still to verify
 
 - Actual feed refresh cadence, i.e. how often `header.timestamp` advances. Poll
   intervals are set from this measurement in Milestone 8, not guessed.
