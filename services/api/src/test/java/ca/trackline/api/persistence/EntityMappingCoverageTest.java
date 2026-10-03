@@ -26,14 +26,18 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
     /**
      * Tables that intentionally have no entity.
      *
-     * <p>PostGIS and Flyway own the first two. The other two belong to the import:
-     * {@code shape_points} is staging written by COPY and read by the geometry
-     * derivation, and {@code route_scheduled_headways} is a derived lookup written
-     * in bulk and read by aggregate queries. Both are SQL all the way through, so
-     * an entity would be unused code rather than a mapping anyone uses.
+     * <p>PostGIS and Flyway own the first two. The rest are written in bulk and
+     * read by aggregate or spatial SQL: {@code shape_points} is import staging,
+     * {@code route_scheduled_headways} is a derived lookup, and
+     * {@code vehicle_observations} is a partitioned append-only log that analytics
+     * query directly. An entity over any of them would be unused code.
+     *
+     * <p>Partitions of vehicle_observations are excluded by prefix rather than by
+     * name, since they are created per day at runtime.
      */
     private static final Set<String> TABLES_WITHOUT_ENTITIES = Set.of(
-            "spatial_ref_sys", "flyway_schema_history", "shape_points", "route_scheduled_headways");
+            "spatial_ref_sys", "flyway_schema_history", "shape_points",
+            "route_scheduled_headways", "vehicle_observations");
 
     @Autowired
     private EntityManager entityManager;
@@ -57,6 +61,7 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
 
         Set<String> expectedEntityTables = schemaTables.stream()
                 .filter(table -> !TABLES_WITHOUT_ENTITIES.contains(table))
+                .filter(table -> !table.startsWith("vehicle_observations_"))
                 .collect(Collectors.toSet());
 
         assertThat(mappedTables)

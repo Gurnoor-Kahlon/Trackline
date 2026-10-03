@@ -59,6 +59,32 @@ trackline:
       max-entries: 64
       copy-batch-bytes: 8388608
       admin-endpoint: true
+    realtime:
+      base-url: https://bustime.ttc.ca/gtfsrt
+      # Timeouts suited to a poll, not a download: a feed that has not answered in
+      # five seconds has already missed the cycle it was for.
+      connect-timeout: 2s
+      read-timeout: 5s
+      # Measured over five minutes: every feed advances its header about every 20 s
+      # (median 20-21 s, fastest 6 s, slowest 42 s). Vehicles are polled at half
+      # that to keep positions fresh; trip updates match the publish rate because
+      # the payload is 480 KB; alerts change a few times a day.
+      vehicle-interval: 10s
+      trip-update-interval: 20s
+      alert-interval: 60s
+      # The largest payload measured is 480 KB. This is headroom, not a target.
+      max-response-bytes: 16777216
+      # Above this share of dropped entities the cycle is recorded as suspect
+      # rather than trusted.
+      suspect-rejection-rate: 0.25
+      # Service thins out overnight, but not by four fifths between one cycle and
+      # the next.
+      suspect-drop-ratio: 0.2
+      # A stationary vehicle is still recorded this often, so it stays visibly
+      # alive without storing a row every cycle.
+      min-observation-gap: 60s
+      min-observation-metres: 25
+      enabled: true
 
 server:
   port: ${API_PORT:8080}

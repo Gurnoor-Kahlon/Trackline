@@ -17,8 +17,9 @@ spacing, bunching detection, and route health.
 
 Local infrastructure (PostgreSQL + PostGIS, Redis) runs via Docker Compose. The
 Spring Boot API runs, migrates its schema with Flyway on startup, and serves
-`GET /api/v1/network/status`, which reports nothing observed with a `NO_DATA`
-provenance because realtime ingestion does not exist yet. The TTC schedule feed
+`GET /api/v1/network/status`. It also polls the TTC's three GTFS-Realtime feeds on
+a schedule, validating and deduplicating vehicle positions into a partitioned
+observation table; nothing serves that data over the API yet. The TTC schedule feed
 can be imported: one command loads the whole network — 236 routes, 9,409 stops,
 138,036 trips and 4,357,307 scheduled calls — into PostgreSQL, then derives what
 the feed does not provide: 1,571 route linestrings, 108 stations clustered from
@@ -215,6 +216,29 @@ rules behind each derivation, and the measurements that motivated them, are in
 [docs/data-sources.md](docs/data-sources.md).
 
 Measured timings for a real import are in [docs/performance.md](docs/performance.md).
+
+### Realtime ingestion
+
+The three GTFS-Realtime feeds are polled automatically whenever the API is running
+— vehicles every 10 s, trip updates every 20 s, alerts every 60 s. Those intervals
+come from measuring how often the TTC actually publishes (about every 20 s), not
+from preference; polling faster than a publisher updates buys nothing.
+
+Every cycle is recorded in `ingestion_runs`, including the ones that find nothing
+new, so a stalled publisher and a healthy quiet one stay distinguishable. A cycle
+that cannot parse its payload keeps the previous snapshot rather than replacing it
+with a partial one.
+
+Set `trackline.gtfs.realtime.enabled=false` to stop polling.
+
+The feeds are a third party's output, so there is a contract test that checks they
+still match what Trackline was built on — including the fields they do *not*
+carry, since the absence of direction, delay and alert periods is what forces
+several design decisions. It is excluded from the normal build and run on purpose:
+
+```bash
+cd services/api && ./mvnw test -Dgroups=live -DexcludedGroups= -DfailIfNoTests=false
+```
 
 ### Database
 

@@ -1,5 +1,11 @@
 # Deterministic test configuration: no external dependency, fixed CORS origin.
 trackline:
+  gtfs:
+    realtime:
+      # Tests invoke cycles directly. A background poller would race their
+      # assertions and reach the real TTC from a build.
+      enabled: false
+      base-url: http://localhost:1/gtfsrt
   cors:
     allowed-origins:
       - http://localhost:3000

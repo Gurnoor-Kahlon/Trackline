@@ -21,6 +21,12 @@
         <java.version>21</java.version>
         <springdoc.version>2.8.17</springdoc.version>
         <commons-csv.version>1.14.1</commons-csv.version>
+        <protobuf.version>4.36.2</protobuf.version>
+        <protobuf-maven-plugin.version>5.1.11</protobuf-maven-plugin.version>
+        <wiremock.version>3.13.2</wiremock.version>
+        <!-- Overridable so the live feed tests can be run deliberately:
+             ./mvnw test -Dgroups=live -DexcludedGroups= -->
+        <excludedGroups>live</excludedGroups>
     </properties>
 
     <dependencies>
@@ -85,6 +91,16 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
+        <!-- GTFS-Realtime is protobuf. The official Java bindings artifact is
+             abandoned at 0.0.4 and pins protobuf-java 2.6.1 from 2014, whose
+             generated code does not run on a current runtime, so the schema is
+             compiled here against a maintained protobuf instead. -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
+        </dependency>
+
         <!-- RFC 4180 CSV parsing. GTFS fields are quoted and contain commas
              (stop names in particular), and a hand-rolled splitter would corrupt
              them in ways that are hard to notice. -->
@@ -118,6 +134,19 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- Serves recorded feed responses so the ingestion pipeline can be tested
+             against timeouts, malformed bodies and server errors without depending
+             on the TTC being reachable or misbehaving on cue. -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <!-- The standalone build shades its own Jetty. The slim artifact needs
+                 Jetty 11 on the classpath, which collides with the server Spring
+                 Boot brings. -->
+            <artifactId>wiremock-standalone</artifactId>
+            <version>${wiremock.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -125,6 +154,35 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!-- Tests tagged "live" reach the real TTC feeds. They are excluded from
+                 the normal build: a failure caused by someone else's outage would
+                 teach nothing, and a build that depends on a third party being up is
+                 not a build. Run them deliberately with -Dgroups=live. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>${excludedGroups}</excludedGroups>
+                </configuration>
+            </plugin>
+            <!-- Generates the GTFS-Realtime message classes from the vendored
+                 official schema. The schema is committed verbatim so it can be
+                 diffed against upstream. -->
+            <plugin>
+                <groupId>io.github.ascopes</groupId>
+                <artifactId>protobuf-maven-plugin</artifactId>
+                <version>${protobuf-maven-plugin.version}</version>
+                <configuration>
+                    <protoc>${protobuf.version}</protoc>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

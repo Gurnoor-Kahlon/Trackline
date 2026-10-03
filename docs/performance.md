@@ -84,6 +84,63 @@ bitmap index scan on `stops_location_gix` reduces 9,409 stops to the 46 within
 queries; the route table is small enough (236 rows) that the planner correctly
 prefers a sequential scan over the trigram index there.
 
+## Realtime ingestion
+
+### How often the TTC actually publishes
+
+**Measured 2026-10-02**, polling all three feeds every 5 s for 5 minutes and
+recording when each header timestamp advanced.
+
+| Feed | Advances | Wall gap min / median / max | Payload |
+| --- | ---: | --- | ---: |
+| vehicles | 13 | 9 / **21** / 42 s | 84–85 KB |
+| trips | 16 | 6 / **20** / 38 s | 473–480 KB |
+| alerts | 16 | 6 / **20** / 39 s | 2 KB |
+
+The poll intervals follow from this rather than from preference: **vehicles 10 s**
+(about half the publish interval, so a new position is picked up within roughly ten
+seconds), **trip updates 20 s** (matching the publish rate, because halving it would
+cost five times the bandwidth on a 480 KB payload for predictions that move slowly),
+**alerts 60 s**. Polling faster than a publisher updates buys nothing.
+
+### Cycles against the live feed
+
+**Measured 2026-10-03**, roughly 3.5 minutes of real ingestion at about 03:40
+Toronto time.
+
+| Feed | Outcome | Cycles | Duration min / median / max |
+| --- | --- | ---: | --- |
+| vehicles | SUCCESS | 5 | 41 / 56 / 190 ms |
+| vehicles | NO_CHANGE | 7 | 16 / 22 / 28 ms |
+| trip updates | SUCCESS | 5 | 41 / 60 / 105 ms |
+| trip updates | NO_CHANGE | 1 | 43 ms |
+| alerts | SUCCESS | 2 | 22 / 388 / 753 ms |
+
+**Seven of twelve vehicle polls found nothing new**, which is what 10 s polling
+against a ~20 s publish cadence should produce. That is the interval working as
+intended, not waste: the alternative is picking up each publication up to 20 s late.
+
+**Zero entities were rejected** across every cycle.
+
+### What ingestion stores
+
+| | |
+| --- | ---: |
+| Observations stored | 2,300 |
+| Entities accepted across successful cycles | 3,895 |
+| Distinct vehicles seen | 655 |
+| Storage across partitions | 1,424 kB |
+| Partitions created automatically | 3 (2026-10-02 … 04) |
+
+Deduplication kept **59 %** of accepted readings; the rest were vehicles that had
+not re-reported or had barely moved. Without it the table would grow by roughly
+1,300 rows every ten seconds.
+
+**Feed latency — the gap between a vehicle reporting and Trackline receiving it —
+was a median of 31 s, with a maximum of 486 s.** The maximum is not a fault: a
+parked vehicle reports rarely, so its reading is genuinely old when it arrives. This
+is the number the freshness envelope exists to expose rather than hide.
+
 ### Storage
 
 | Item | Size |

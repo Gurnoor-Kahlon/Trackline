@@ -159,7 +159,27 @@ Route length is measured on the 4326 geography, never on the 3857 geometry: Web
 Mercator inflates distance at Toronto's latitude by a **measured factor of 1.384**,
 which would overstate every route length and every spacing figure derived from it.
 
-## 5. Still to verify
+## 5. Realtime facts confirmed on later samples
+
+Re-measured 2026-10-02 and 2026-10-03, against the figures taken during planning:
+
+- **Publication cadence: about every 20 s** for all three feeds (median 20–21 s,
+  fastest 6 s, slowest 42 s). This sets the poll intervals. **[verified]**
+- **Route assignment varies enormously with the hour.** 77 % of 1,363 vehicles
+  carried a route at midday; at 03:38 it was **28.8 % of 649**. Most of the
+  overnight fleet is parked or deadheading. Anything that treats a fall in assigned
+  vehicles as a fault — route health especially — has to account for this.
+  **[verified]**
+- **Position is present on 100 % of vehicles and occupancy on 97–99 %** at every
+  hour sampled. These are structural; route assignment is not. **[verified]**
+- **Feed latency measured at a median of 31 s**, maximum 486 s, between a vehicle's
+  own timestamp and Trackline receiving it. A parked vehicle legitimately reports
+  rarely. **[verified]**
+- **`active_period` is deprecated in the GTFS-Realtime specification itself**, not
+  merely absent from the TTC's output — further reason for Trackline to observe
+  alert lifetimes rather than read them. **[verified]**
+
+## 6. Still to verify
 
 - Actual feed refresh cadence, i.e. how often `header.timestamp` advances. Poll
   intervals are set from this measurement in Milestone 8, not guessed.

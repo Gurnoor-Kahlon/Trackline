@@ -33,7 +33,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "2 static network",
                 "3 ingestion runs",
                 "4 shape points",
-                "5 scheduled headways");
+                "5 scheduled headways",
+                "6 vehicle observations");
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
@@ -56,6 +57,7 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
                   AND table_name NOT IN ('spatial_ref_sys', 'flyway_schema_history')
+                  AND table_name !~ '^vehicle_observations_[0-9]'
                 ORDER BY table_name
                 """,
                 String.class);
@@ -72,7 +74,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "stations",
                 "stop_times",
                 "stops",
-                "trips");
+                "trips",
+                "vehicle_observations");
     }
 
     @Test
@@ -80,14 +83,18 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
         List<String> geography = jdbc.queryForList(
                 """
                 SELECT f_table_name || '.' || f_geography_column || ' ' || type || ' ' || srid
-                FROM geography_columns WHERE f_table_schema = 'public' ORDER BY 1
+                FROM geography_columns WHERE f_table_schema = 'public'
+                  -- Daily partitions repeat the parent table's column.
+                  AND f_table_name !~ '^vehicle_observations_[0-9]'
+                ORDER BY 1
                 """,
                 String.class);
 
         assertThat(geography).containsExactly(
                 "route_shapes.geom_wgs LineString 4326",
                 "stations.centroid Point 4326",
-                "stops.location Point 4326");
+                "stops.location Point 4326",
+                "vehicle_observations.position Point 4326");
 
         // Scoped to the public schema: the PostGIS image also ships the tiger
         // geocoder, whose tables appear in these catalog views too.
@@ -109,7 +116,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "route_shapes_geom_gix",
                 "route_shapes_geom_wgs_gix",
                 "stations_centroid_gix",
-                "stops_location_gix");
+                "stops_location_gix",
+                "vehicle_observations_position_gix");
     }
 
     @Test
@@ -171,6 +179,9 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 JOIN pg_class t ON t.oid = x.indrelid
                 JOIN pg_am am ON am.oid = i.relam
                 WHERE t.relnamespace = 'public'::regnamespace AND am.amname = ?
+                  -- Daily partitions inherit the parent's indexes; that they do is
+                  -- the point, but they are not separate declarations.
+                  AND t.relname !~ '^vehicle_observations_[0-9]'
                 ORDER BY i.relname
                 """,
                 String.class,
