@@ -59,6 +59,31 @@ nothing next to loading stop_times.
 and hashed, but the SHA-256 matches the active version so nothing is parsed or
 loaded. Since the TTC republishes monthly, this is the usual outcome of a run.
 
+## Static API endpoints
+
+**Measured 2026-10-02**, against the full imported network (236 routes, 9,409
+stops, 1,571 shapes), 20 requests per endpoint over a reused connection, server
+and database both on this machine.
+
+| Endpoint | Mean | Max |
+| --- | ---: | ---: |
+| `GET /routes?size=50` | 8.1 ms | 13.7 ms |
+| `GET /routes/501` | 19.2 ms | 25.6 ms |
+| `GET /routes/501/shape?simplifyMetres=20` | 9.5 ms | 20.5 ms |
+| `GET /routes/1/stops` | 15.2 ms | 23.1 ms |
+| `GET /stops/nearby?radiusMetres=1000` | 7.5 ms | 23.6 ms |
+| `GET /search?q=Kennedy` | 28.5 ms | 30.3 ms |
+
+Measured over a reused connection on purpose: a fresh `curl` per request reported
+77–151 ms, almost all of it process startup. That would have been a misleading
+number to publish.
+
+`EXPLAIN ANALYZE` confirms the spatial index carries the proximity query — a
+bitmap index scan on `stops_location_gix` reduces 9,409 stops to the 46 within
+500 m in 0.03 ms. Search is the slowest endpoint because it unions three trigram
+queries; the route table is small enough (236 rows) that the planner correctly
+prefers a sequential scan over the trigram index there.
+
 ### Storage
 
 | Item | Size |

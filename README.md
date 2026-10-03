@@ -23,7 +23,8 @@ can be imported: one command loads the whole network — 236 routes, 9,409 stops
 138,036 trips and 4,357,307 scheduled calls — into PostgreSQL, then derives what
 the feed does not provide: 1,571 route linestrings, 108 stations clustered from
 platform stops, and 20,945 scheduled headway entries. Nothing reads that data over
-the API yet.
+the API yet, but the schedule half of it is queryable: routes, their geometry and
+stops, stop detail, proximity search and text search all return real TTC data.
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
@@ -107,9 +108,19 @@ entities — Hibernate only validates that the two agree.
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v1/network/status` | Network-wide live status |
+| `GET /api/v1/routes` | List routes, filterable by mode and name |
+| `GET /api/v1/routes/{id}` | A route and its directions |
+| `GET /api/v1/routes/{id}/shape` | Route geometry as GeoJSON, optionally simplified |
+| `GET /api/v1/routes/{id}/stops` | Stops in order along the route |
+| `GET /api/v1/stops/{id}` | A stop and the routes that call there |
+| `GET /api/v1/stops/nearby` | Stops near a point, nearest first |
+| `GET /api/v1/search` | Routes, stops and stations by name or number |
 | `GET /actuator/health` | Liveness and readiness |
 | `GET /api-docs` | OpenAPI 3.1 document |
 | `GET /api-docs/ui` | Swagger UI |
+
+Every list endpoint caps its page size, radius and result count, and a request
+over a cap is a `400` naming the offending parameter rather than a server error.
 
 Run the tests. Integration tests start their own PostGIS container through
 Testcontainers, so Docker must be running but Compose does not have to be:

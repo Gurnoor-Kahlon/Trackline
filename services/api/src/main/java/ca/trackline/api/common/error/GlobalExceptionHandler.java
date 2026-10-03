@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -58,6 +60,42 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setProperty("resourceType", exception.getResourceType());
         problem.setProperty("resourceId", exception.getResourceId());
         return ResponseEntity.status(problem.getStatus()).body(decorate(problem, request.getRequestURI()));
+    }
+
+    /**
+     * A query or path parameter outside its allowed range.
+     *
+     * <p>Caps on page size, radius and result count are a protection, not an
+     * internal error. Without this they reach the catch-all and surface as 500,
+     * which tells a caller nothing about the parameter it got wrong and reports a
+     * server fault for what is a client mistake.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ProblemDetail> handleConstraintViolation(
+            ConstraintViolationException exception, HttpServletRequest request) {
+
+        List<Map<String, String>> violations = exception.getConstraintViolations().stream()
+                .map(violation -> Map.of(
+                        "parameter", lastNode(violation),
+                        "message", violation.getMessage()))
+                .toList();
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Request validation failed.");
+        problem.setTitle("Invalid request");
+        problem.setType(URI.create(TYPE_BASE + "validation-failed"));
+        problem.setProperty("violations", violations);
+        return ResponseEntity.badRequest().body(decorate(problem, request.getRequestURI()));
+    }
+
+    /**
+     * The property path is "method.parameter", and only the parameter name means
+     * anything to a caller.
+     */
+    private static String lastNode(ConstraintViolation<?> violation) {
+        String path = violation.getPropertyPath().toString();
+        int lastDot = path.lastIndexOf('.');
+        return lastDot < 0 ? path : path.substring(lastDot + 1);
     }
 
     /**

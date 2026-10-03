@@ -148,6 +148,13 @@ Two measured facts shaped these rules:
   Kipling GO Station" is a bus stop. Grouping on the word "Station" would put bus
   stops inside subway stations, so only the platform pattern is used.
 
+**`shape_dist_traveled` is published in kilometres.** GTFS does not define a unit
+for it — it only has to be internally consistent — so it was measured against the
+geometry: a declared step of 0.0100 spans 10.0 m, and shape 1122835 declares
+17.3549 against a measured length of 17,409 m. The API converts to metres. Passing
+the raw value through would understate every distance along a route a
+thousandfold, in a way that looks plausible on screen. **[verified]**
+
 Route length is measured on the 4326 geography, never on the 3857 geometry: Web
 Mercator inflates distance at Toronto's latitude by a **measured factor of 1.384**,
 which would overstate every route length and every spacing figure derived from it.
