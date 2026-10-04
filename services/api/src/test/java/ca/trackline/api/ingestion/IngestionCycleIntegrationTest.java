@@ -1,6 +1,9 @@
 package ca.trackline.api.ingestion;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -20,6 +23,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -48,6 +52,18 @@ class IngestionCycleIntegrationTest extends PostgisIntegrationTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    /**
+     * Fixed to the moment the fixtures were recorded.
+     *
+     * <p>Without this the test rots: the payloads carry real timestamps, the
+     * validator rejects readings older than six hours, and a suite that passed when
+     * the fixtures were captured starts failing the next day for a reason that has
+     * nothing to do with the code. Recording "now" alongside the data is what makes
+     * a recorded feed reusable.
+     */
+    @MockitoBean
+    private Clock clock;
+
     @BeforeAll
     static void startFeedServer() {
         feedServer = new WireMockServer(WireMockConfiguration.options().dynamicPort());
@@ -66,6 +82,10 @@ class IngestionCycleIntegrationTest extends PostgisIntegrationTest {
 
     @BeforeEach
     void reset() {
+        Instant recordedAt = headerTimestampOf("vehicles.pb");
+        org.mockito.Mockito.when(clock.instant()).thenReturn(recordedAt);
+        org.mockito.Mockito.when(clock.getZone()).thenReturn(ZoneOffset.UTC);
+
         feedServer.resetAll();
         observationWriter.forgetAll();
         jdbc.execute("TRUNCATE vehicle_observations");
@@ -269,6 +289,16 @@ class IngestionCycleIntegrationTest extends PostgisIntegrationTest {
 
         assertThat(runs()).hasSize(2);
         assertThat(runs()).allSatisfy(run -> assertThat(run.entityCount()).isPositive());
+    }
+
+    /** When a recorded payload says it was published. */
+    private static Instant headerTimestampOf(String fixture) {
+        try {
+            var message = com.google.transit.realtime.GtfsRealtime.FeedMessage.parseFrom(bytes(fixture));
+            return Instant.ofEpochSecond(message.getHeader().getTimestamp());
+        } catch (com.google.protobuf.InvalidProtocolBufferException cause) {
+            throw new IllegalStateException(cause);
+        }
     }
 
     /**

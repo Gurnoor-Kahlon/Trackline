@@ -7,8 +7,14 @@ package ca.trackline.api.common.envelope;
  */
 public enum DataSource {
 
-    /** Served from the current realtime feed snapshot. */
+    /** Served from the shared live-state cache, holding the current feed snapshot. */
     LIVE,
+
+    /**
+     * Served from this process's own copy of the last snapshot, because the shared
+     * cache was unreachable. Current, but only as current as this instance is.
+     */
+    CACHED,
 
     /** Redis was unavailable; served from PostgreSQL instead. */
     DB_FALLBACK,

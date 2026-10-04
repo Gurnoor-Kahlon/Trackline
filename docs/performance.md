@@ -141,6 +141,46 @@ was a median of 31 s, with a maximum of 486 s.** The maximum is not a fault: a
 parked vehicle reports rarely, so its reading is genuinely old when it arrives. This
 is the number the freshness envelope exists to expose rather than hide.
 
+## Live vehicle endpoints
+
+**Measured 2026-10-03** at about 12:40 Toronto time, with 1,459-1,462 vehicles in
+the snapshot. 25 requests per endpoint over a reused connection.
+
+| Endpoint | Mean | Median | Max |
+| --- | ---: | ---: | ---: |
+| `GET /vehicles` (all 1,462) | 63.3 ms | 55.9 ms | 143.5 ms |
+| `GET /routes/501/vehicles` (32 of them) | 58.7 ms | 51.6 ms | 134.9 ms |
+| `GET /vehicles?bbox=` (179 of them) | 46.3 ms | 39.5 ms | 134.4 ms |
+
+The filtered endpoints are barely faster than the unfiltered one, and that is the
+most useful thing these numbers say: the cost is deserialising the whole snapshot
+on every request, not the Redis round trip or the filtering. Storing a key per
+route would address it, at the price of write amplification and the risk of a
+half-rewritten key set mixing two feed cycles. At 60 ms that trade is not worth
+making yet; the measurement is here so it can be revisited against evidence.
+
+The database fallback's query — the last tier — runs in **23.8 ms** against 2,327
+rows using the per-route index, with 6.0 ms of planning. It will grow with
+retention, which is why it is the fallback rather than the normal path.
+
+### Behaviour during a cache outage
+
+**Measured 2026-10-03** by stopping the Redis container while the API was serving.
+
+| | |
+| --- | --- |
+| Response | still `200`, 1,459 vehicles |
+| Provenance | `source: CACHED`, `degraded: true` |
+| Health endpoint | stays `UP` |
+| Ingestion | continues, 1,456 observations stored during the outage |
+| Latency during outage | **0.54-0.56 s** |
+| Recovery | automatic, back to `source: LIVE` on the next cycle |
+
+That latency is the honest cost of the current design: every request pays the full
+500 ms Redis timeout before falling through. The service stays up and stays honest,
+but it gets ten times slower. A circuit breaker that stops attempting Redis after
+repeated failures would fix it, and is not built yet.
+
 ### Storage
 
 | Item | Size |

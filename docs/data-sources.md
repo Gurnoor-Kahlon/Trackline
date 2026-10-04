@@ -179,7 +179,22 @@ Re-measured 2026-10-02 and 2026-10-03, against the figures taken during planning
   merely absent from the TTC's output — further reason for Trackline to observe
   alert lifetimes rather than read them. **[verified]**
 
-## 6. Still to verify
+## 6. Local environment hazards
+
+Two services installed natively on the development machine shadow the project's
+containers, each in a way that produces no error at all:
+
+- **PostgreSQL on 5432.** Found during the schema milestone; the container is
+  published on **55432** instead.
+- **Redis 7.0.15 inside a WSL distro, relayed by Windows to `localhost:6379`.**
+  Found during the live-state milestone, and only because stopping the container
+  did not change the API's behaviour. The container is published on **56379**.
+
+Both are worth recording because the failure mode is identical and silent: the
+application connects successfully, to the wrong server. The Redis case was briefly
+mistaken for the degradation path working.
+
+## 7. Still to verify
 
 - Actual feed refresh cadence, i.e. how often `header.timestamp` advances. Poll
   intervals are set from this measurement in Milestone 8, not guessed.

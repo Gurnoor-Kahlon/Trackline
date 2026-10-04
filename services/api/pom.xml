@@ -73,6 +73,15 @@
             <artifactId>hibernate-spatial</artifactId>
         </dependency>
 
+        <!-- Redis holds the live snapshot so a page view does not query Postgres for
+             positions that change every ten seconds. It is a cache: everything in it
+             is reconstructed by the next ingestion cycle, and the API degrades rather
+             than fails when it is gone. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
         <!-- Versioned schema migrations; the schema is never generated at runtime. -->
         <dependency>
             <groupId>org.flywaydb</groupId>

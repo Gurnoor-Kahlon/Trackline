@@ -19,7 +19,7 @@ Local infrastructure (PostgreSQL + PostGIS, Redis) runs via Docker Compose. The
 Spring Boot API runs, migrates its schema with Flyway on startup, and serves
 `GET /api/v1/network/status`. It also polls the TTC's three GTFS-Realtime feeds on
 a schedule, validating and deduplicating vehicle positions into a partitioned
-observation table; nothing serves that data over the API yet. The TTC schedule feed
+observation table, and serves them live from a Redis-backed cache. The TTC schedule feed
 can be imported: one command loads the whole network — 236 routes, 9,409 stops,
 138,036 trips and 4,357,307 scheduled calls — into PostgreSQL, then derives what
 the feed does not provide: 1,571 route linestrings, 108 stations clustered from
@@ -116,6 +116,8 @@ entities — Hibernate only validates that the two agree.
 | `GET /api/v1/stops/{id}` | A stop and the routes that call there |
 | `GET /api/v1/stops/nearby` | Stops near a point, nearest first |
 | `GET /api/v1/search` | Routes, stops and stations by name or number |
+| `GET /api/v1/vehicles` | Live vehicles, filterable by route or bounding box |
+| `GET /api/v1/routes/{id}/vehicles` | Live vehicles working one route |
 | `GET /actuator/health` | Liveness and readiness |
 | `GET /api-docs` | OpenAPI 3.1 document |
 | `GET /api-docs/ui` | Swagger UI |
@@ -231,6 +233,26 @@ with a partial one.
 
 Set `trackline.gtfs.realtime.enabled=false` to stop polling.
 
+### Live state and degradation
+
+Each cycle publishes the vehicle snapshot to Redis, so a page view reads one cached
+document instead of querying Postgres for positions that change every ten seconds.
+
+Reads fall through three tiers, and every response says which one answered:
+
+| `meta.source` | Means |
+| --- | --- |
+| `LIVE` | the shared Redis cache |
+| `CACHED` | this instance's own copy, because Redis was unreachable |
+| `DB_FALLBACK` | reconstructed from stored observations — the stalest of the three |
+| `NO_DATA` | nothing has been ingested, which is not the same as no vehicles running |
+
+`CACHED` and `DB_FALLBACK` also set `meta.degraded`. Losing Redis costs freshness
+and speed, never availability: the API keeps answering, ingestion keeps recording
+history, and `/actuator/health` deliberately stays `UP`, because an instance that
+can still serve should not be pulled out of a load balancer. Measurements for the
+healthy and degraded paths are in [docs/performance.md](docs/performance.md).
+
 The feeds are a third party's output, so there is a contract test that checks they
 still match what Trackline was built on — including the fields they do *not*
 carry, since the absence of direction, delay and alert periods is what forces
@@ -247,11 +269,12 @@ thing that changes the schema. `spring.jpa.hibernate.ddl-auto` is `validate`, so
 mismatch between an entity and a migration fails the build rather than silently
 altering a table.
 
-The container publishes Postgres on **55432**, not 5432, so it cannot be shadowed
-by a PostgreSQL installed natively on the machine — that failure mode is quiet and
-confusing, because connections succeed against the wrong server. Change
-`POSTGRES_PORT` in `.env` if you need a different port; it feeds both the
-published port and the API's JDBC URL.
+The containers publish Postgres on **55432** and Redis on **56379**, not on their
+default ports, so neither can be shadowed by a service installed natively on the
+machine — including one inside a WSL distro, which Windows relays to `localhost`.
+That failure mode is quiet and confusing, because connections succeed against the
+wrong server. Both ports come from `.env` and feed the published port and the
+application's connection settings together.
 
 To inspect the schema:
 

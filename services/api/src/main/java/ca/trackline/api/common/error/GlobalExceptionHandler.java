@@ -63,6 +63,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
+     * A request the caller got wrong in a way the validation annotations could not
+     * express, such as a bounding box whose corners are the wrong way round.
+     */
+    @ExceptionHandler(InvalidRequestException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidRequest(
+            InvalidRequestException exception, HttpServletRequest request) {
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        problem.setTitle("Invalid request");
+        problem.setType(URI.create(TYPE_BASE + "validation-failed"));
+        return ResponseEntity.badRequest().body(decorate(problem, request.getRequestURI()));
+    }
+
+    /**
      * A query or path parameter outside its allowed range.
      *
      * <p>Caps on page size, radius and result count are a protection, not an

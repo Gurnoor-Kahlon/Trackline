@@ -14,6 +14,14 @@ spring:
       # Ingestion holds a connection for a whole cycle, so a request must fail
       # fast rather than queue behind it indefinitely.
       connection-timeout: 5000
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # A cache call that has not answered in this long has already cost more than
+      # the database query it was meant to avoid.
+      timeout: 500ms
+      connect-timeout: 500ms
   jpa:
     hibernate:
       # The schema is owned by Flyway migrations. Hibernate only checks that the
@@ -85,6 +93,11 @@ trackline:
       min-observation-gap: 60s
       min-observation-metres: 25
       enabled: true
+  live-state:
+    # Longer than the poll interval so a snapshot survives a slow cycle, short
+    # enough that a dead ingester's last snapshot expires instead of being served
+    # forever as though it were current.
+    snapshot-ttl: 2m
 
 server:
   port: ${API_PORT:8080}
@@ -98,6 +111,12 @@ server:
   shutdown: graceful
 
 management:
+  health:
+    # Redis is a cache whose absence degrades responses rather than breaking them,
+    # so losing it must not mark the service unhealthy and take it out of a load
+    # balancer that it can still serve from.
+    redis:
+      enabled: false
   endpoints:
     web:
       exposure:

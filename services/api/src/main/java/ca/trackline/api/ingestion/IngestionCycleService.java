@@ -14,6 +14,8 @@ import ca.trackline.api.gtfs.realtime.RealtimeFeed;
 import ca.trackline.api.gtfs.realtime.RealtimeFeedParser;
 import ca.trackline.api.gtfs.realtime.RealtimeProperties;
 import ca.trackline.api.gtfs.realtime.TtcRealtimeClient;
+import ca.trackline.api.livestate.InProcessSnapshotCache;
+import ca.trackline.api.livestate.LiveStateStore;
 import ca.trackline.api.persistence.entity.IngestionRunStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,8 @@ public class IngestionCycleService {
     private final TtcRealtimeClient client;
     private final RealtimeFeedParser parser;
     private final VehicleObservationWriter observationWriter;
+    private final LiveStateStore liveState;
+    private final InProcessSnapshotCache inProcessCache;
     private final IngestionRunRecorder runRecorder;
     private final IngestionMetrics metrics;
     private final RealtimeProperties properties;
@@ -60,6 +64,8 @@ public class IngestionCycleService {
             TtcRealtimeClient client,
             RealtimeFeedParser parser,
             VehicleObservationWriter observationWriter,
+            LiveStateStore liveState,
+            InProcessSnapshotCache inProcessCache,
             IngestionRunRecorder runRecorder,
             IngestionMetrics metrics,
             RealtimeProperties properties,
@@ -68,6 +74,8 @@ public class IngestionCycleService {
         this.client = client;
         this.parser = parser;
         this.observationWriter = observationWriter;
+        this.liveState = liveState;
+        this.inProcessCache = inProcessCache;
         this.runRecorder = runRecorder;
         this.metrics = metrics;
         this.properties = properties;
@@ -127,6 +135,12 @@ public class IngestionCycleService {
             Instant observedAt = Instant.now(clock);
             observationWriter.ensurePartitionFor(observedAt);
             stored = observationWriter.write(snapshot.vehicles(), runId, observedAt);
+
+            // Published to both tiers every cycle. The in-process copy is written
+            // unconditionally so this instance can still answer if Redis is the
+            // thing that is down.
+            inProcessCache.store(snapshot.vehicles(), snapshot.headerTimestamp());
+            liveState.replaceVehicles(snapshot.vehicles(), snapshot.headerTimestamp());
         }
 
         lastHeaderTimestamp.put(feed, snapshot.headerTimestamp());
