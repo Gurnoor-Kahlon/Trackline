@@ -46,7 +46,12 @@ export function RouteBadge({
   return (
     <span
       className={cn(
-        "tabular inline-flex items-center justify-center rounded-md font-bold leading-none tracking-tight",
+        // relative is not decoration. The visually-hidden mode label below is
+        // absolutely positioned, and without a positioned ancestor it is laid
+        // out against the page rather than the badge — so inside a scrolling
+        // list of 236 routes it escapes the list's clipping and drags the
+        // document out to several thousand empty pixels.
+        "tabular relative inline-flex items-center justify-center rounded-md font-bold leading-none tracking-tight",
         SIZE_CLASS[size],
         className,
       )}

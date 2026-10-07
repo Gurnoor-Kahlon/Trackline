@@ -29,9 +29,12 @@ stops, stop detail, proximity search and text search all return real TTC data.
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
-sheet, skeleton, empty and error primitives. It does not call the API yet, so
-every data region on the home page states that nothing has been measured rather
-than showing placeholder figures.
+sheet, skeleton, empty and error primitives. The home page still calls no API, so
+every data region on it states that nothing has been measured rather than showing
+placeholder figures. `/map` does call the API: it draws any of the 236 routes on a
+MapLibre basemap from the agency's own schedule geometry, with the stops that
+route serves, filters by mode and name, and a list beside the map that offers
+every interaction the map does. No vehicles are on it yet.
 
 ## Planned stack
 
@@ -165,8 +168,9 @@ that appears in the logs.
 cd apps/web && corepack pnpm install && corepack pnpm dev
 ```
 
-It serves on 3000. The app does not talk to the API yet, so neither Compose nor
-the API needs to be running.
+It serves on 3000. The home page needs nothing else running; `/map` reads routes
+and geometry from the API, so Compose, the API and an imported schedule feed all
+need to be up for it to show anything other than its error state.
 
 | Command | Purpose |
 | --- | --- |
@@ -178,6 +182,18 @@ the API needs to be running.
 
 pnpm is provided by Corepack, which ships with Node, so no global install is
 needed — `corepack pnpm <command>` works anywhere in `apps/web`.
+
+Configuration is documented in `apps/web/.env.example`: the API's base URL and
+the two basemap style URLs. Every one has a working default, so a `.env.local` is
+only needed to change one. All three are `NEXT_PUBLIC_`, so they are compiled into
+the browser bundle — nothing secret belongs there.
+
+`pnpm dev` and `pnpm build` first copy MapLibre's web worker into
+`public/vendor/`. MapLibre locates that worker from `import.meta.url`, which a
+bundler rewrites to a chunk path where the file does not exist; the map then
+renders nothing and logs only "Worker failed to load". The copy is regenerated
+from whichever version is installed and is not committed, so it cannot drift from
+`package.json`. See `apps/web/scripts/sync-maplibre-worker.mjs`.
 
 Design tokens live in `src/app/globals.css`. Surfaces stay near-neutral so the
 only saturated colour on screen carries meaning: a route's own GTFS colour, or a
@@ -269,7 +285,7 @@ thing that changes the schema. `spring.jpa.hibernate.ddl-auto` is `validate`, so
 mismatch between an entity and a migration fails the build rather than silently
 altering a table.
 
-The containers publish Postgres on **55432** and Redis on **56379**, not on their
+The containers publish Postgres on **56432** and Redis on **56379**, not on their
 default ports, so neither can be shadowed by a service installed natively on the
 machine — including one inside a WSL distro, which Windows relays to `localhost`.
 That failure mode is quiet and confusing, because connections succeed against the

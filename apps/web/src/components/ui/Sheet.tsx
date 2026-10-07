@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
 
@@ -24,6 +24,10 @@ type SheetProps = {
  */
 export function Sheet({ open, onClose, title, children, className }: SheetProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // Generated rather than fixed: more than one sheet is mounted at a time —
+  // the header's search and the map's panels — and a shared id would leave
+  // duplicate ids in the document and an ambiguous accessible name.
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -60,7 +64,7 @@ export function Sheet({ open, onClose, title, children, className }: SheetProps)
   return (
     <dialog
       ref={dialogRef}
-      aria-labelledby="sheet-title"
+      aria-labelledby={titleId}
       onClick={(event) => {
         // The backdrop is part of the dialog element, so a click landing on the
         // dialog itself rather than its content means the backdrop was hit.
@@ -77,7 +81,7 @@ export function Sheet({ open, onClose, title, children, className }: SheetProps)
       )}
     >
       <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
-        <h2 id="sheet-title" className="text-base font-semibold text-ink">
+        <h2 id={titleId} className="text-base font-semibold text-ink">
           {title}
         </h2>
         <button

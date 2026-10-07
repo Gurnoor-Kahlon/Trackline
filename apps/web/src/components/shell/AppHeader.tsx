@@ -1,13 +1,17 @@
+import type { Route } from "next";
 import Link from "next/link";
 
 import { SearchTrigger } from "@/components/shell/SearchTrigger";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
 
 /**
- * Only routes that exist are listed. Map and alerts join this list in the
- * milestones that build them, rather than appearing now as links to nothing.
+ * Only routes that exist are listed. Alerts joins this list in the milestone
+ * that builds it, rather than appearing now as a link to nothing.
  */
-const NAV_ITEMS = [{ href: "/", label: "Home" }] as const;
+const NAV_ITEMS: readonly { href: Route; label: string }[] = [
+  { href: "/", label: "Home" },
+  { href: "/map", label: "Map" },
+];
 
 /**
  * The application header: wordmark, primary navigation, search and theme.

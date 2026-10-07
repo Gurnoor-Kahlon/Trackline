@@ -13,7 +13,10 @@ const config = [
   ...coreWebVitals,
   ...nextTypescript,
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
+    // public/vendor holds MapLibre's worker, copied verbatim from
+    // node_modules before each run. It is third-party build output, so
+    // linting it reports hundreds of warnings about code we do not own.
+    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "public/vendor/**"],
   },
   {
     rules: {

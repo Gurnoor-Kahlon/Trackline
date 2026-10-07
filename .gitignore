@@ -38,3 +38,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Copied from node_modules before each dev run and build; see
+# apps/web/scripts/sync-maplibre-worker.mjs for why it cannot be imported.
+apps/web/public/vendor/

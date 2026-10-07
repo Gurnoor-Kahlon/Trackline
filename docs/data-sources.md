@@ -185,7 +185,7 @@ Two services installed natively on the development machine shadow the project's
 containers, each in a way that produces no error at all:
 
 - **PostgreSQL on 5432.** Found during the schema milestone; the container is
-  published on **55432** instead.
+  published on **56432** instead.
 - **Redis 7.0.15 inside a WSL distro, relayed by Windows to `localhost:6379`.**
   Found during the live-state milestone, and only because stopping the container
   did not change the API's behaviour. The container is published on **56379**.
@@ -193,6 +193,21 @@ containers, each in a way that produces no error at all:
 Both are worth recording because the failure mode is identical and silent: the
 application connects successfully, to the wrong server. The Redis case was briefly
 mistaken for the degradation path working.
+
+A third hazard appeared during the map milestone, and it is the reason the
+PostgreSQL port moved from 55432 to 56432. On Windows, Hyper-V and WSL reserve
+blocks of TCP ports for their own dynamic use, and the reserved blocks move
+between reboots:
+
+```
+netsh int ipv4 show excludedportrange protocol=tcp
+```
+
+55432 fell inside the reserved range 55364-55463, so Docker could not bind it. The
+symptom was not a clear failure either: the container reported healthy, published
+no port at all, and the API could not reach a database that was plainly running.
+Any port chosen for local development should be checked against that list, because
+a range that is free today may not be after the next restart.
 
 ## 7. Still to verify
 
