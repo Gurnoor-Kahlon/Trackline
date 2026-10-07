@@ -26,6 +26,9 @@ the feed does not provide: 1,571 route linestrings, 108 stations clustered from
 platform stops, and 20,945 scheduled headway entries. Nothing reads that data over
 the API yet, but the schedule half of it is queryable: routes, their geometry and
 stops, stop detail, proximity search and text search all return real TTC data.
+Each stored vehicle reading also carries where that vehicle is along its route and
+which way it is going, derived from its position (see
+[docs/route-progress.md](docs/route-progress.md)); that is stored, not yet served.
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
@@ -248,6 +251,21 @@ that cannot parse its payload keeps the previous snapshot rather than replacing 
 with a partial one.
 
 Set `trackline.gtfs.realtime.enabled=false` to stop polling.
+
+### Placing vehicles on their routes
+
+The feed publishes neither a direction nor a distance along the route, so both are
+derived. Each cycle projects every route-assigned vehicle onto the primary shape of
+its route, in one PostGIS statement for the whole fleet, and decides which of the
+route's two directions it is running from its reported heading, falling back to how
+far it has moved since its last stored reading. The result is stored beside the
+reading. A vehicle that cannot be placed says why — off-route, no route assigned,
+no shape, or direction genuinely unknown — instead of carrying a guessed value.
+
+The thresholds are in `application.yml` under `trackline.analytics.progress`, each
+set from a measurement. If projection fails, the cycle still stores its readings,
+unprojected. The algorithm, the measurements behind it, and what it cannot do are in
+[docs/route-progress.md](docs/route-progress.md).
 
 ### Live state and degradation
 

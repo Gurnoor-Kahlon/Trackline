@@ -34,11 +34,55 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "3 ingestion runs",
                 "4 shape points",
                 "5 scheduled headways",
-                "6 vehicle observations");
+                "6 vehicle observations",
+                "7 observation route progress");
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
         assertThat(failures).isZero();
+    }
+
+    @Test
+    void observationsCarryTheDerivedPlacementColumnsAllowingNull() {
+        // Nullable by design: null means never projected, which is a different claim
+        // from every real outcome. Rows predating the projection milestone, and any
+        // cycle whose projection failed, rely on it.
+        List<String> columns = jdbc.queryForList(
+                """
+                SELECT column_name || ' ' || data_type || ' ' || is_nullable
+                FROM information_schema.columns
+                WHERE table_name = 'vehicle_observations'
+                  AND column_name IN ('projection_status', 'inferred_direction_id', 'progress_m',
+                                      'progress_fraction', 'projection_offset_m')
+                ORDER BY column_name
+                """,
+                String.class);
+
+        assertThat(columns).containsExactly(
+                "inferred_direction_id smallint YES",
+                "progress_fraction double precision YES",
+                "progress_m double precision YES",
+                "projection_offset_m real YES",
+                "projection_status text YES");
+    }
+
+    @Test
+    void thePlacementConstraintsExistOnTheObservationTable() {
+        List<String> constraints = jdbc.queryForList(
+                """
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'vehicle_observations'::regclass AND contype = 'c'
+                  AND conname LIKE 'vehicle_observations_%'
+                ORDER BY conname
+                """,
+                String.class);
+
+        assertThat(constraints).contains(
+                "vehicle_observations_inferred_direction_check",
+                "vehicle_observations_progress_check",
+                "vehicle_observations_projection_consistency_check",
+                "vehicle_observations_projection_offset_check",
+                "vehicle_observations_projection_status_check");
     }
 
     @Test

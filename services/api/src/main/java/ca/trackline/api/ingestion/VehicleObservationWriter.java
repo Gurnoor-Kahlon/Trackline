@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import ca.trackline.api.analytics.progress.RouteProgress;
+import ca.trackline.api.analytics.progress.RouteProgressSnapshot;
 import ca.trackline.api.gtfs.realtime.RealtimeProperties;
 import ca.trackline.api.gtfs.realtime.VehicleSnapshot;
 import org.slf4j.Logger;
@@ -39,9 +41,12 @@ public class VehicleObservationWriter {
             INSERT INTO vehicle_observations (
                 vehicle_id, source_timestamp, observed_at, route_id, source_trip_id,
                 position, bearing, source_speed, current_status, current_stop_sequence,
-                stop_id, occupancy_status, ingestion_run_id)
+                stop_id, occupancy_status, ingestion_run_id,
+                projection_status, inferred_direction_id, progress_m, progress_fraction,
+                projection_offset_m)
             VALUES (?, ?, ?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
-                    ?, ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?)
             ON CONFLICT (vehicle_id, source_timestamp) DO NOTHING
             """;
 
@@ -61,9 +66,16 @@ public class VehicleObservationWriter {
     }
 
     /**
+     * @param progress where each vehicle was placed along its route; a vehicle absent
+     *                 from it is stored with no projection, which is how a cycle whose
+     *                 projection failed still keeps its readings
      * @return how many observations were stored
      */
-    public int write(List<VehicleSnapshot> vehicles, long ingestionRunId, Instant observedAt) {
+    public int write(
+            List<VehicleSnapshot> vehicles,
+            RouteProgressSnapshot progress,
+            long ingestionRunId,
+            Instant observedAt) {
         List<VehicleSnapshot> worthStoring = new ArrayList<>();
         for (VehicleSnapshot vehicle : vehicles) {
             if (isWorthStoring(vehicle)) {
@@ -77,7 +89,8 @@ public class VehicleObservationWriter {
         int[] results = jdbc.batchUpdate(INSERT, new org.springframework.jdbc.core.BatchPreparedStatementSetter() {
             @Override
             public void setValues(PreparedStatement statement, int index) throws java.sql.SQLException {
-                bind(statement, worthStoring.get(index), ingestionRunId, observedAt);
+                VehicleSnapshot vehicle = worthStoring.get(index);
+                bind(statement, vehicle, progress.get(vehicle.vehicleId()).orElse(null), ingestionRunId, observedAt);
             }
 
             @Override
@@ -123,7 +136,12 @@ public class VehicleObservationWriter {
                 new StoredReading(vehicle.sourceTimestamp(), vehicle.latitude(), vehicle.longitude()));
     }
 
-    private static void bind(PreparedStatement statement, VehicleSnapshot vehicle, long runId, Instant observedAt)
+    private static void bind(
+            PreparedStatement statement,
+            VehicleSnapshot vehicle,
+            RouteProgress progress,
+            long runId,
+            Instant observedAt)
             throws java.sql.SQLException {
         statement.setString(1, vehicle.vehicleId());
         statement.setTimestamp(2, Timestamp.from(vehicle.sourceTimestamp()));
@@ -139,6 +157,39 @@ public class VehicleObservationWriter {
         setNullable(statement, 12, vehicle.stopId());
         setNullableShort(statement, 13, vehicle.occupancyStatus());
         statement.setLong(14, runId);
+        bindProgress(statement, progress);
+    }
+
+    /**
+     * A null progress is a vehicle that was never projected, which the schema stores
+     * as all-null. It is not the same as a projection that found nothing: those carry
+     * a status naming what they found.
+     */
+    private static void bindProgress(PreparedStatement statement, RouteProgress progress)
+            throws java.sql.SQLException {
+        if (progress == null) {
+            statement.setNull(15, Types.VARCHAR);
+            statement.setNull(16, Types.SMALLINT);
+            statement.setNull(17, Types.DOUBLE);
+            statement.setNull(18, Types.DOUBLE);
+            statement.setNull(19, Types.REAL);
+            return;
+        }
+
+        statement.setString(15, progress.status().name());
+        setNullableShort(statement, 16, progress.directionId());
+        setNullableDouble(statement, 17, progress.progressMetres());
+        setNullableDouble(statement, 18, progress.progressFraction());
+        setNullableFloat(statement, 19, progress.offsetMetres() == null ? null : progress.offsetMetres().floatValue());
+    }
+
+    private static void setNullableDouble(PreparedStatement statement, int index, Double value)
+            throws java.sql.SQLException {
+        if (value == null) {
+            statement.setNull(index, Types.DOUBLE);
+        } else {
+            statement.setDouble(index, value);
+        }
     }
 
     private static void setNullable(PreparedStatement statement, int index, String value) throws java.sql.SQLException {

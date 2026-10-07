@@ -8,6 +8,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import ca.trackline.api.analytics.progress.ProgressMetrics;
+import ca.trackline.api.analytics.progress.RouteProgressProjector;
+import ca.trackline.api.analytics.progress.RouteProgressSnapshot;
 import ca.trackline.api.gtfs.realtime.FeedEntityValidator;
 import ca.trackline.api.gtfs.realtime.FeedSnapshot;
 import ca.trackline.api.gtfs.realtime.RealtimeFeed;
@@ -43,6 +46,8 @@ public class IngestionCycleService {
     private final TtcRealtimeClient client;
     private final RealtimeFeedParser parser;
     private final VehicleObservationWriter observationWriter;
+    private final RouteProgressProjector progressProjector;
+    private final ProgressMetrics progressMetrics;
     private final LiveStateStore liveState;
     private final InProcessSnapshotCache inProcessCache;
     private final IngestionRunRecorder runRecorder;
@@ -64,6 +69,8 @@ public class IngestionCycleService {
             TtcRealtimeClient client,
             RealtimeFeedParser parser,
             VehicleObservationWriter observationWriter,
+            RouteProgressProjector progressProjector,
+            ProgressMetrics progressMetrics,
             LiveStateStore liveState,
             InProcessSnapshotCache inProcessCache,
             IngestionRunRecorder runRecorder,
@@ -74,6 +81,8 @@ public class IngestionCycleService {
         this.client = client;
         this.parser = parser;
         this.observationWriter = observationWriter;
+        this.progressProjector = progressProjector;
+        this.progressMetrics = progressMetrics;
         this.liveState = liveState;
         this.inProcessCache = inProcessCache;
         this.runRecorder = runRecorder;
@@ -131,10 +140,16 @@ public class IngestionCycleService {
                 snapshot.acceptedCount(), snapshot.rejectedCount(), snapshot.headerTimestamp(), null);
 
         int stored = 0;
+        RouteProgressSnapshot progress = RouteProgressSnapshot.unprojected();
         if (feed == RealtimeFeed.VEHICLE_POSITIONS && !snapshot.vehicles().isEmpty()) {
             Instant observedAt = Instant.now(clock);
             observationWriter.ensurePartitionFor(observedAt);
-            stored = observationWriter.write(snapshot.vehicles(), runId, observedAt);
+
+            // Placed before the readings are stored, so that "the previous reading"
+            // is genuinely the one from an earlier cycle and not the one about to be
+            // written.
+            progress = project(snapshot);
+            stored = observationWriter.write(snapshot.vehicles(), progress, runId, observedAt);
 
             // Published to both tiers every cycle. The in-process copy is written
             // unconditionally so this instance can still answer if Redis is the
@@ -152,11 +167,32 @@ public class IngestionCycleService {
         metrics.recordEntities(feed, snapshot.acceptedCount(), snapshot.rejectedCount(), stored);
 
         log.info(
-                "{} cycle status={} accepted={} rejected={} stored={} durationMs={} rejections={}",
+                "{} cycle status={} accepted={} rejected={} stored={} durationMs={} rejections={} placement={}",
                 feed, status, snapshot.acceptedCount(), snapshot.rejectedCount(), stored, durationMs,
-                snapshot.rejections());
+                snapshot.rejections(), progress.countsByStatus());
 
         return new IngestionCycleResult(feed, status, snapshot, stored, durationMs, null);
+    }
+
+    /**
+     * Places the vehicles on their routes, or reports that it could not.
+     *
+     * <p>Projection is derived data, and a failure in deriving it must never cost
+     * the readings it was derived from. Those are the only record of where the
+     * fleet was, and cannot be re-fetched: the publisher keeps no history. So a
+     * failure is counted and logged, and the readings are stored unprojected —
+     * which the schema records as such, rather than as a vehicle with nothing to
+     * say.
+     */
+    private RouteProgressSnapshot project(FeedSnapshot snapshot) {
+        try {
+            return progressProjector.project(snapshot.vehicles());
+        } catch (RuntimeException failure) {
+            progressMetrics.recordFailure();
+            log.warn("Could not place vehicles on their routes; storing readings unprojected: {}",
+                    failure.toString());
+            return RouteProgressSnapshot.unprojected();
+        }
     }
 
     /**

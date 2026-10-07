@@ -141,6 +141,89 @@ was a median of 31 s, with a maximum of 486 s.** The maximum is not a fault: a
 parked vehicle reports rarely, so its reading is genuinely old when it arrives. This
 is the number the freshness envelope exists to expose rather than hide.
 
+## Placing vehicles on routes
+
+How long it takes to project a whole cycle of vehicles onto their routes, and what
+it adds to a cycle. Method and results of the placement itself are in
+[route-progress.md](route-progress.md).
+
+**Measured 2026-10-06, 21:46-21:59 Toronto time**, API running from source against
+the live feed, the full imported network (470 primary shapes) and a database already
+holding ~120,000 observations. Each cycle places about 1,500 vehicles, of which
+about 940 are assigned a route.
+
+### The two queries, in isolation
+
+`EXPLAIN (ANALYZE)` against the real database on a batch of 950 route-assigned
+vehicles (the latest reading of each):
+
+| Query | Rows | Execution |
+| --- | ---: | ---: |
+| Project onto both directions' shapes (`ShapeProjectionRepository`) | 1,900 | 132 ms (including 12 ms of JIT) |
+| Previous reading per vehicle (`PreviousReadingRepository`) | 950 | 7 ms |
+
+The previous-reading plan shows partition pruning working: only today's partition is
+read, and the other six report "never executed". That is the point of spelling the
+timestamp window out as constant bounds as well as joining on it.
+
+### Inside a running cycle
+
+Read from the `trackline.analytics.projection.duration` timer as the difference
+between two readings, over intervals in which nothing else was running on the
+machine. One interval that overlapped a frontend test run read 305 ms and is not
+used: it measured the contention, not the code.
+
+| Condition | Quiet cycles | Mean projection time |
+| --- | ---: | ---: |
+| Server reusing a generic plan (before the fix below) | 8 | 266 ms |
+| Planned with the real arrays every time (current) | 9 | **166 ms** |
+
+**The 100 ms difference is a planner mistake, not the work.** After five executions
+the PostgreSQL driver lets the server reuse one plan, and a reused plan cannot see
+how long the arrays passed to `unnest` are. It assumed ten vehicles where there were
+947, concluded a nested loop was cheap (estimated cost 3,053 against 280,674 for the
+alternative), and re-read each wide shape row once per vehicle:
+
+| Plan for the shape query, 947 vehicles | Execution |
+| --- | ---: |
+| Generic (what the driver switched to) | 207 ms |
+| Planned with the real parameters (hash join) | 126 ms |
+
+It showed in the live log as cycle times creeping from about 250 ms to about 400 ms
+around the sixth cycle. Server-side preparation is now switched off for that one
+statement, and a test pins it. The same comparison on the previous-reading query
+found the generic plan no worse (5.9 ms against 11.2 ms), so that one is left alone.
+
+### What it adds to a cycle
+
+The whole vehicle cycle (fetch, parse, project, store, publish), `SUCCESS` cycles
+from `ingestion_runs`:
+
+| Period | Cycles | Vehicles | Median | p90 | Max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Before this milestone, 2026-10-04 15:30-16:21 EDT | 103 | ~1,291 | 138 ms | 223 ms | 1,624 ms |
+| After, generic plan, 2026-10-06 21:47-22:00 EDT | 28 | ~1,508 | 388 ms | 492 ms | 1,097 ms |
+| After, current, 22:03-22:10 EDT | 15 | ~1,500 | **303 ms** | 449 ms | 1,457 ms |
+
+The median rose by about 165 ms, which is the measured cost of projection (166 ms)
+almost exactly. A cycle now takes about 1.5% of the 20 s the publisher takes to
+produce the next one.
+
+These are **not identical conditions**: the earlier period is mid-afternoon with
+about 16% fewer vehicles reporting. The comparison shows the order of magnitude and
+that the added time is the projection, not that the two figures differ by exactly
+this much for the same fleet.
+
+About two-thirds of readings are stored each cycle (1,008 of 1,507 on average): the
+rest are vehicles that have not moved 25 m or re-reported in 60 s. Placement is
+computed for all of them, because spacing needs the whole fleet, but only stored
+readings carry it into the table.
+
+Two of ten consecutive vehicle cycles in one stretch failed on the 5 s read timeout
+against `bustime.ttc.ca` ("Request cancelled"), before projection ran. Recorded as
+`FAILED`, and the next cycle was normal. That is the failure handling working, and
+a reminder that the publisher is not always prompt.
+
 ## Live vehicle endpoints
 
 **Measured 2026-10-03** at about 12:40 Toronto time, with 1,459-1,462 vehicles in

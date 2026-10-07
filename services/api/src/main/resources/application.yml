@@ -98,6 +98,28 @@ trackline:
     # enough that a dead ingester's last snapshot expires instead of being served
     # forever as though it were current.
     snapshot-ttl: 2m
+  analytics:
+    # Thresholds for placing a vehicle on its route, each set from a measurement
+    # over 1,089 route-assigned vehicles in a real snapshot (docs/route-progress.md).
+    progress:
+      # The nearest shape was within 5 m for half the vehicles and within 16 m for
+      # nine in ten, then there is a gap: 1,013 are within 150 m and 1,017 within
+      # 250 m. The remaining 7% were hundreds of metres to 10 km away. The figure
+      # sits in the empty middle, so it is not sensitive.
+      max-offset-metres: 150
+      # Where the vehicle's heading and the shape's direction differ by at most this,
+      # they agree. Two directions of one street differ by about 180, so a wide
+      # window still singles out one; 60 leaves room for a vehicle mid-turn.
+      bearing-tolerance-degrees: 60
+      # Between readings the writer stores only vehicles that moved 25 m or more, so
+      # genuine travel clears this easily; GPS jitter on a stationary vehicle does not.
+      min-movement-metres: 30
+      # The feed advances about every 20 s and a stationary vehicle is stored every
+      # 60 s, so five minutes spans several missed readings without reaching back to
+      # where a vehicle was before it turned round.
+      max-previous-age: 5m
+      # Either side of the vehicle, so the direction is read across about 30 m.
+      tangent-window-metres: 15
 
 server:
   port: ${API_PORT:8080}
