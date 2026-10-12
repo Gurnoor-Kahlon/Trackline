@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/cn";
@@ -59,6 +60,13 @@ export function LiveStatusChip({ store, network, className }: LiveStatusChipProp
         <span aria-hidden className="text-ink-subtle">
           {fleet.vehiclesTracked.toLocaleString("en-CA")} vehicles on {fleet.routesReporting} routes
         </span>
+      )}
+      {fleet === null || fleet.activeAlerts === null ? null : (
+        // Not hidden from assistive technology like the ticking text: it is a link, and a
+        // focusable element must not sit inside an aria-hidden region.
+        <Link href="/alerts" className="rounded-sm font-medium text-accent underline underline-offset-2">
+          {fleet.activeAlerts} alert{fleet.activeAlerts === 1 ? "" : "s"}
+        </Link>
       )}
       <span role="status" className="sr-only">
         {status.announcement}

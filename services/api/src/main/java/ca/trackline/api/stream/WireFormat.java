@@ -59,14 +59,15 @@ final class WireFormat {
 
     /**
      * Counts are of what is tracked right now. {@code activeAlerts} is null, not
-     * zero: alerts are ingested but not yet persisted or counted, and zero would be
-     * a measurement Trackline has not made.
+     * zero, until alerts have been ingested at least once: zero would be a
+     * measurement Trackline has not made.
      */
-    static String network(Instant now, Instant feedTimestamp, int vehiclesTracked, int routesReporting) {
+    static String network(
+            Instant now, Instant feedTimestamp, int vehiclesTracked, int routesReporting, Integer activeAlerts) {
         Map<String, Object> body = envelope(now, feedTimestamp);
         body.put("vehiclesTracked", vehiclesTracked);
         body.put("routesReporting", routesReporting);
-        body.put("activeAlerts", null);
+        body.put("activeAlerts", activeAlerts);
         return write(body);
     }
 

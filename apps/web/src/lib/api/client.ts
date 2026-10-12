@@ -51,7 +51,7 @@ type RequestOptions = {
  * decoration: it carries how old the data is and which tier served it, and a
  * caller that drops it will render stale data as though it were current.
  */
-async function fetchEnvelope<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
+export async function fetchEnvelope<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
   const url = `${apiBaseUrl()}${path}`;
 
   let response: Response;

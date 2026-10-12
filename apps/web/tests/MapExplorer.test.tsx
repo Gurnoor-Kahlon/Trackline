@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api/client";
 import { fetchRoute, fetchRouteShape, fetchRouteStops } from "@/lib/api/routes";
 import type { RouteDetail, RouteShape, RouteStop, RouteSummary } from "@/lib/api/types";
 import { LiveStore } from "@/lib/live/liveStore";
+import { useAlerts, type AlertsResult } from "@/lib/alerts/useAlerts";
 import { useLiveVehicles } from "@/lib/live/useLiveVehicles";
 
 import { snapshot as liveSnapshot, vehicle as liveVehicle } from "./live/helpers";
@@ -26,6 +27,9 @@ vi.mock("@/lib/live/useLiveVehicles", () => ({ useLiveVehicles: vi.fn() }));
 vi.mock("@/lib/live/useNetworkStatus", () => ({
   useNetworkStatus: () => ({ summary: null, connection: "open" }),
 }));
+
+/** Alerts are fetched by their own hook, which is replaced so the page can be shown any answer. */
+vi.mock("@/lib/alerts/useAlerts", () => ({ useAlerts: vi.fn() }));
 
 /**
  * The map itself is replaced by a component that prints what it was handed.
@@ -148,6 +152,8 @@ beforeEach(() => {
   vi.mocked(fetchRoute).mockReset();
   vi.mocked(fetchRouteShape).mockReset();
   vi.mocked(fetchRouteStops).mockReset();
+  vi.mocked(useAlerts).mockReset();
+  vi.mocked(useAlerts).mockReturnValue({ status: "loading" });
 });
 
 describe("MapExplorer", () => {
@@ -365,6 +371,80 @@ describe("MapExplorer live vehicles", () => {
 
     expect(await detailPanel().findByText("3 last known")).toBeInTheDocument();
     expect(detailPanel().queryByText(/tracked now/)).not.toBeInTheDocument();
+  });
+
+  describe("alerts for the selected route", () => {
+    const readyAlerts = (descriptions: string[], total = descriptions.length): AlertsResult => ({
+      status: "ready",
+      alerts: descriptions.map((description, index) => ({
+        id: index + 1,
+        sourceAlertId: `s${index}`,
+        status: "ACTIVE",
+        cause: "UNKNOWN_CAUSE",
+        effect: "UNKNOWN_EFFECT",
+        header: null,
+        description,
+        url: null,
+        firstSeenAt: "2026-10-12T10:00:00Z",
+        lastSeenAt: "2026-10-12T11:59:40Z",
+        lastChangedAt: "2026-10-12T10:00:00Z",
+        resolvedAt: null,
+        routes: [],
+        stops: [],
+      })),
+      total,
+      meta: {
+        generatedAt: "2026-10-12T12:00:00Z",
+        feedTimestamp: "2026-10-12T11:59:40Z",
+        ageSeconds: 20,
+        stale: false,
+        degraded: false,
+        source: "STORED",
+      },
+      serverOffsetMs: 0,
+      refreshFailed: false,
+    });
+
+    it("fetches nothing while no route is selected", () => {
+      render(<MapExplorer routes={ROUTES} />);
+
+      expect(vi.mocked(useAlerts)).toHaveBeenCalledWith({ active: true }, false);
+    });
+
+    it("asks for the selected route's alerts, three at most, once one is chosen", async () => {
+      const user = userEvent.setup();
+      vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+      vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+      vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+      render(<MapExplorer routes={ROUTES} />);
+
+      await user.click(filters().getByText("Queen"));
+
+      await waitFor(() =>
+        expect(vi.mocked(useAlerts)).toHaveBeenLastCalledWith({ active: true, route: "501", size: 3 }, true),
+      );
+    });
+
+    it("shows what the route is named in, in its panel", async () => {
+      const user = userEvent.setup();
+      vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+      vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+      vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+      vi.mocked(useAlerts).mockReturnValue(readyAlerts(["Queen detour via Dundas"]));
+      render(<MapExplorer routes={ROUTES} />);
+
+      await user.click(filters().getByText("Queen"));
+
+      expect(await detailPanel().findByText("Queen detour via Dundas")).toBeInTheDocument();
+      expect(detailPanel().getByRole("heading", { name: "Alerts naming this route" })).toBeInTheDocument();
+    });
+
+    it("shows no alerts section before a route is chosen", () => {
+      vi.mocked(useAlerts).mockReturnValue(readyAlerts(["Should not appear"]));
+      render(<MapExplorer routes={ROUTES} />);
+
+      expect(screen.queryByText("Should not appear")).not.toBeInTheDocument();
+    });
   });
 
   it("says none are reporting when the stream knows of none, which is a finding", async () => {

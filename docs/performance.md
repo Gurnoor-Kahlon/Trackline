@@ -334,3 +334,49 @@ app's embedded browser, with about 1,800 vehicles streaming. The map drew all of
 them as arrow and dot markers, and a vehicle's drawn position advanced smoothly
 between reports (four samples over 14 s moved it steadily along its street). No frame
 rate or `setData` cost was recorded, so none is claimed.
+
+---
+
+## Service alerts
+
+**Measured 2026-10-12** on the live TTC feed, with the API run from source on the same
+laptop as the database. Eleven alerts, 97 route references, 99 stored entity rows.
+
+### Cycles
+
+Seven consecutive alert cycles, one a minute, from the dev run's `ingestion_runs`:
+
+| Cycle | Duration | What it did |
+| --- | ---: | --- |
+| 1 | 828 ms | opened all 11 alerts (cold: first use of the new tables and statements) |
+| 2-7 | 25, 25, 30, 26, 27, 37 ms | confirmed all 11, nothing opened, changed or resolved |
+
+The steady state is a median of **26.5 ms** for a cycle that fetches, parses, validates,
+fingerprints and reconciles the alerts and writes the confirmations. Seven cycles is a small
+sample, and cycles 4-7 ran while a full `./mvnw verify` was using the same machine, so read
+the tail as "tens of milliseconds", not as a distribution.
+
+Every cycle was a `SUCCESS` and none was `NO_CHANGE`: the alerts publisher's header
+timestamp advances roughly every 20 s, so at a 60 s poll the payload is always new. The
+`NO_CHANGE` path (which only advances `last_seen_at`) exists for a publisher that stalls.
+
+### Endpoints
+
+25 requests each, over `curl` to localhost with a new connection per request (so these
+include connection setup), before the verify run started:
+
+| Endpoint | Min | Median | Max |
+| --- | ---: | ---: | ---: |
+| `GET /alerts?size=100` (11 alerts) | 11.6 ms | 17.3 ms | 46.9 ms |
+| `GET /alerts?route=501` (1 alert) | 10.4 ms | 12.9 ms | 30.7 ms |
+
+An alert read is two queries however many alerts a page holds: the page, then every route
+and stop it names in one statement. Not measured: a large history of resolved alerts, which
+is why retention matters (milestone 16), or any load beyond one client.
+
+### Storage
+
+At 11 alerts and 99 entity rows each table, indexes included, is **64 kB**, which is the
+smallest size PostgreSQL reports for a table with indexes and says nothing about growth.
+Growth depends on how often the TTC's alerts turn over, which has not been measured over
+more than a few minutes.

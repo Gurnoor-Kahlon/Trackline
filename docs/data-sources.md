@@ -108,6 +108,16 @@ Every entity carries `trip`, `stop_time_update`s and `timestamp`. 24,570 of
 (`route_id`, sometimes `stop_id`) are present on all 13 alerts.
 **`active_period` is absent and `severity_level` is absent.**
 
+**Correction, measured 2026-10-12 against the live feed (11 alerts):** `cause` and
+`effect` are *present* but carry no information. All 11 alerts state `UNKNOWN_CAUSE` (1)
+and `UNKNOWN_EFFECT` (8), the specification's placeholder values, so a count of "alerts
+with an effect" looks healthy while nothing can be grouped or ranked by it. The earlier
+statement above was true of the fields' presence and misleading about their content.
+Also measured then: `header_text` is cut off by the publisher at 31 characters,
+mid-word, on 5 of the 11 alerts (the rest are short enough to survive), while
+`description_text` carries the whole sentence; and every informed entity also names
+agency `1`, which Trackline does not use. See [alerts.md](alerts.md).
+
 ---
 
 ## 3. Design conclusions drawn from the above

@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import ca.trackline.api.alerts.ActiveAlerts;
 import ca.trackline.api.stream.SseClient.Event;
 import ca.trackline.api.testsupport.PostgisIntegrationTest;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -49,6 +50,9 @@ class StreamIntegrationTest extends PostgisIntegrationTest {
 
     @Autowired
     private StreamHub hub;
+
+    @Autowired
+    private ActiveAlerts activeAlerts;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -320,7 +324,14 @@ class StreamIntegrationTest extends PostgisIntegrationTest {
         assertThat(first.name()).isEqualTo("network");
         assertThat(first.json().get("vehiclesTracked").asInt()).isEqualTo(2);
         assertThat(first.json().get("routesReporting").asInt()).isEqualTo(2);
-        assertThat(first.json().get("activeAlerts").isNull()).isTrue();
+        // Whatever the application knows about alerts, the stream says: a number once alerts
+        // have been ingested, null before. Shared state decides which, so assert the agreement.
+        Integer known = activeAlerts.current();
+        if (known == null) {
+            assertThat(first.json().get("activeAlerts").isNull()).isTrue();
+        } else {
+            assertThat(first.json().get("activeAlerts").asInt()).isEqualTo(known);
+        }
 
         publish(T0 + 20, 100);
         assertThat(nextData(client).name()).isEqualTo("network");

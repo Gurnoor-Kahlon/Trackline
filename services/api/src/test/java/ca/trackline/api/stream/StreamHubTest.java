@@ -62,6 +62,10 @@ class StreamHubTest {
         hub.destroy();
     }
 
+    /** What the hub is told about open alerts: null, as before any alert has been ingested. */
+    private final java.util.concurrent.atomic.AtomicReference<Integer> openAlerts =
+            new java.util.concurrent.atomic.AtomicReference<>();
+
     private StreamHub hubWith(int ringCapacity, int maxTotal, int maxPerClient) {
         return hubWith(ringCapacity, maxTotal, maxPerClient, 64);
     }
@@ -72,6 +76,7 @@ class StreamHubTest {
                 Duration.ofMinutes(30), queueCapacity, 5, Duration.ofSeconds(60));
         return new StreamHub(
                 properties, fallback, Clock.systemUTC(), new StreamMetrics(new SimpleMeterRegistry()),
+                openAlerts::get,
                 timeout -> {
                     RecordingEmitter emitter = new RecordingEmitter();
                     emitters.add(emitter);
@@ -542,6 +547,7 @@ class StreamHubTest {
         assertThat(emitter.names()).containsExactly("network");
         assertThat(body(emitter.sent().get(0)).get("vehiclesTracked").asInt()).isEqualTo(2);
         assertThat(body(emitter.sent().get(0)).get("routesReporting").asInt()).isEqualTo(2);
+        // Null, not zero, while nothing says how many alerts there are.
         assertThat(body(emitter.sent().get(0)).get("activeAlerts").isNull()).isTrue();
 
         hub.publish(
@@ -572,5 +578,28 @@ class StreamHubTest {
         awaitEvents(network, 2);
         assertThat(vehicles.names()).containsExactly("snapshot", "snapshot");
         assertThat(network.names()).containsExactly("network", "network");
+    }
+
+    @Test
+    void theNetworkStreamCarriesTheOpenAlertCountAsItStandsWhenAMessageIsSent() {
+        publishFleet(T0, 0);
+        openAlerts.set(3);
+        hub.connectNetwork("client");
+        RecordingEmitter emitter = emitters.get(emitters.size() - 1);
+        awaitEvents(emitter, 1);
+        assertThat(body(emitter.sent().get(0)).get("activeAlerts").asInt()).isEqualTo(3);
+
+        // Alerts change on their own cycle, so the next vehicle cycle's message reports the
+        // new count without anything having been pushed for the alerts.
+        openAlerts.set(0);
+        hub.publish(
+                List.of(
+                        snapshot("a", "501", northMetres(80), LON, T0 + 20),
+                        snapshot("b", "504", northMetres(80), LON, T0 + 20)),
+                Instant.ofEpochSecond(T0 + 20));
+        awaitEvents(emitter, 2);
+
+        // Zero here is a measurement: the count was known and is none.
+        assertThat(body(emitter.sent().get(1)).get("activeAlerts").asInt()).isZero();
     }
 }

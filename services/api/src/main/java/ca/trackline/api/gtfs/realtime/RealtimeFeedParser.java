@@ -152,6 +152,12 @@ public class RealtimeFeedParser {
                 .ifPresentOrElse(reason -> count(rejections, reason), () -> accepted.add(snapshot));
     }
 
+    /** Bounds on untrusted alert text. The longest real description measured was 233 characters. */
+    private static final int MAX_ID_LENGTH = 128;
+    private static final int MAX_HEADER_LENGTH = 300;
+    private static final int MAX_DESCRIPTION_LENGTH = 4_000;
+    private static final int MAX_URL_LENGTH = 2_048;
+
     private static void readAlert(
             String entityId,
             Alert published,
@@ -162,17 +168,19 @@ public class RealtimeFeedParser {
         List<AlertSnapshot.AffectedEntity> affected = new ArrayList<>(published.getInformedEntityCount());
         for (EntitySelector selector : published.getInformedEntityList()) {
             affected.add(new AlertSnapshot.AffectedEntity(
-                    selector.hasRouteId() ? selector.getRouteId() : null,
-                    selector.hasStopId() ? selector.getStopId() : null));
+                    selector.hasRouteId() ? clean(selector.getRouteId(), MAX_ID_LENGTH) : null,
+                    selector.hasStopId() ? clean(selector.getStopId(), MAX_ID_LENGTH) : null));
         }
 
         AlertSnapshot snapshot = new AlertSnapshot(
-                entityId,
+                clean(entityId, MAX_ID_LENGTH),
                 published.hasCause() ? published.getCause().getNumber() : null,
                 published.hasEffect() ? published.getEffect().getNumber() : null,
-                firstTranslation(published.hasHeaderText() ? published.getHeaderText() : null),
-                firstTranslation(published.hasDescriptionText() ? published.getDescriptionText() : null),
-                firstTranslation(published.hasUrl() ? published.getUrl() : null),
+                firstTranslation(published.hasHeaderText() ? published.getHeaderText() : null, MAX_HEADER_LENGTH),
+                firstTranslation(
+                        published.hasDescriptionText() ? published.getDescriptionText() : null,
+                        MAX_DESCRIPTION_LENGTH),
+                firstTranslation(published.hasUrl() ? published.getUrl() : null, MAX_URL_LENGTH),
                 List.copyOf(affected));
 
         validator.rejectAlert(snapshot)
@@ -183,12 +191,29 @@ public class RealtimeFeedParser {
      * The first translation of a translated string. The TTC publishes one language,
      * so picking the first is the whole of the language handling this needs.
      */
-    private static String firstTranslation(com.google.transit.realtime.GtfsRealtime.TranslatedString translated) {
+    private static String firstTranslation(
+            com.google.transit.realtime.GtfsRealtime.TranslatedString translated, int maxLength) {
         if (translated == null || translated.getTranslationCount() == 0) {
             return null;
         }
-        String text = translated.getTranslation(0).getText();
+        String text = clean(translated.getTranslation(0).getText(), maxLength);
         return text.isBlank() ? null : text;
+    }
+
+    /**
+     * Makes a published string safe to store. The text is untrusted: a NUL character
+     * is not storable in PostgreSQL and would fail every write, and every cycle after
+     * it, for as long as the alert stayed in the feed; and nothing else bounds its size.
+     * Real values are far inside these limits (the longest alert text measured, on
+     * 2026-10-12, was 233 characters), so truncation is a defence and not a routine event.
+     */
+    static String clean(String text, int maxLength) {
+        String printable = text.indexOf('\0') >= 0 ? text.replace("\0", "") : text;
+        if (printable.codePointCount(0, printable.length()) <= maxLength) {
+            return printable;
+        }
+        // The limit is in characters, so a character that takes two UTF-16 units is never split.
+        return printable.substring(0, printable.offsetByCodePoints(0, maxLength));
     }
 
     private static void count(Map<RejectionReason, Integer> rejections, RejectionReason reason) {

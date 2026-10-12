@@ -8,6 +8,7 @@ import { RouteDetailPanel } from "@/components/map/RouteDetailPanel";
 import { RouteFilterPanel } from "@/components/map/RouteFilterPanel";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
+import { useAlerts } from "@/lib/alerts/useAlerts";
 import { ApiError } from "@/lib/api/client";
 import { fetchRoute, fetchRouteShape, fetchRouteStops } from "@/lib/api/routes";
 import type { RouteDetail, RouteShape, RouteStop, RouteSummary } from "@/lib/api/types";
@@ -86,6 +87,13 @@ export function MapExplorer({ routes }: MapExplorerProps) {
   const liveStore = useLiveVehicles(selectedRouteId === null ? NO_ROUTES : [selectedRouteId]);
   const network = useNetworkStatus();
   const routeColours = useMemo(() => colourByRoute(routes), [routes]);
+  // The alerts that name the selected route. Nothing is fetched while none is selected.
+  const routeAlerts = useAlerts(
+    selectedRouteId === null
+      ? { active: true }
+      : { active: true, route: selectedRouteId, size: ROUTE_ALERT_COUNT },
+    selectedRouteId !== null,
+  );
   const liveFeed = useMemo(() => ({ store: liveStore, routeColours }), [liveStore, routeColours]);
 
   // How many vehicles the stream holds, or null until the first snapshot has arrived.
@@ -229,6 +237,7 @@ export function MapExplorer({ routes }: MapExplorerProps) {
       error={error}
       liveVehicles={selectedRouteId === null ? null : liveVehicleCount}
       liveVehiclesCurrent={liveConnected}
+      alerts={selectedRouteId === null ? undefined : routeAlerts}
     />
   );
 
@@ -331,6 +340,9 @@ function describe(cause: unknown): string {
 
 /** A stable empty list, so "no route chosen" is the same value on every render. */
 const NO_ROUTES: readonly string[] = [];
+
+/** Alerts shown in the route panel; the rest are one link away on the alerts page. */
+const ROUTE_ALERT_COUNT = 3;
 
 /** Route id to its published colour, leaving out the routes that published none. */
 function colourByRoute(routes: readonly RouteSummary[]): ReadonlyMap<string, string> {

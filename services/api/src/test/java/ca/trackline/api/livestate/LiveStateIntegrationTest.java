@@ -6,6 +6,7 @@ import java.util.List;
 
 import ca.trackline.api.common.envelope.DataSource;
 import ca.trackline.api.gtfs.realtime.VehicleSnapshot;
+import ca.trackline.api.ingestion.VehicleObservationWriter;
 import ca.trackline.api.testsupport.RedisAndPostgisIntegrationTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +42,9 @@ class LiveStateIntegrationTest extends RedisAndPostgisIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private VehicleObservationWriter observationWriter;
 
     @BeforeEach
     void clearEverything() {
@@ -238,13 +242,11 @@ class LiveStateIntegrationTest extends RedisAndPostgisIntegrationTest {
                 """);
         Long runId = jdbc.queryForObject("SELECT max(id) FROM ingestion_runs", Long.class);
 
-        jdbc.execute("""
-                CREATE TABLE IF NOT EXISTS vehicle_observations_%s PARTITION OF vehicle_observations
-                FOR VALUES FROM ('%s') TO ('%s')
-                """.formatted(
-                at.atZone(java.time.ZoneOffset.UTC).toLocalDate().toString().replace('-', '_'),
-                at.atZone(java.time.ZoneOffset.UTC).toLocalDate(),
-                at.atZone(java.time.ZoneOffset.UTC).toLocalDate().plusDays(1)));
+        // The same partitioning the application uses, which covers the day either side. A
+        // partition built here from the UTC date alone did not hold a reading from "three
+        // hours ago" when run between 20:00 and 03:00 in Toronto, where that instant falls on
+        // the previous local day while the database reads partition bounds as local midnight.
+        observationWriter.ensurePartitionFor(at);
 
         jdbc.update(
                 """

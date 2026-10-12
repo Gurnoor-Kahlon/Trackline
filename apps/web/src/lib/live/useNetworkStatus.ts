@@ -11,6 +11,8 @@ import type { ConnectionStatus } from "@/lib/live/types";
 export type NetworkSummary = {
   vehiclesTracked: number;
   routesReporting: number;
+  /** Open alerts, or null while the API has not yet ingested any. Null is not zero. */
+  activeAlerts: number | null;
 };
 
 export type NetworkStatusResult = {
@@ -46,7 +48,11 @@ export function useNetworkStatus(): NetworkStatusResult {
           const message = parseNetwork(data);
           setResult((previous) => ({
             ...previous,
-            summary: { vehiclesTracked: message.vehiclesTracked, routesReporting: message.routesReporting },
+            summary: {
+              vehiclesTracked: message.vehiclesTracked,
+              routesReporting: message.routesReporting,
+              activeAlerts: message.activeAlerts,
+            },
           }));
         } catch (error) {
           if (error instanceof ProtocolError) {

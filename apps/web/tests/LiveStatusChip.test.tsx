@@ -70,11 +70,48 @@ describe("the live status chip", () => {
     render(
       <LiveStatusChip
         store={storeWithData(5)}
-        network={{ summary: { vehiclesTracked: 1507, routesReporting: 112 }, connection: "open" }}
+        network={{ summary: { vehiclesTracked: 1507, routesReporting: 112, activeAlerts: null }, connection: "open" }}
       />,
     );
 
     expect(screen.getByText("1,507 vehicles on 112 routes")).toBeInTheDocument();
+  });
+
+  describe("the alert count", () => {
+    const withAlerts = (activeAlerts: number | null) => ({
+      summary: { vehiclesTracked: 1507, routesReporting: 112, activeAlerts },
+      connection: "open" as const,
+    });
+
+    it("links to the alerts page", () => {
+      render(<LiveStatusChip store={storeWithData(5)} network={withAlerts(11)} />);
+
+      expect(screen.getByRole("link", { name: "11 alerts" })).toHaveAttribute("href", "/alerts");
+    });
+
+    it("is singular for one", () => {
+      render(<LiveStatusChip store={storeWithData(5)} network={withAlerts(1)} />);
+
+      expect(screen.getByRole("link", { name: "1 alert" })).toBeInTheDocument();
+    });
+
+    it("says zero when the count is a measured zero", () => {
+      render(<LiveStatusChip store={storeWithData(5)} network={withAlerts(0)} />);
+
+      expect(screen.getByRole("link", { name: "0 alerts" })).toBeInTheDocument();
+    });
+
+    it("says nothing when the count is not known, because that is not zero", () => {
+      render(<LiveStatusChip store={storeWithData(5)} network={withAlerts(null)} />);
+
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    });
+
+    it("is not inside the hidden, ticking text, since a focusable link must stay reachable", () => {
+      render(<LiveStatusChip store={storeWithData(5)} network={withAlerts(3)} />);
+
+      expect(screen.getByRole("link", { name: "3 alerts" }).closest("[aria-hidden='true']")).toBeNull();
+    });
   });
 
   it("shows no counts rather than zeros before the network stream has answered", () => {

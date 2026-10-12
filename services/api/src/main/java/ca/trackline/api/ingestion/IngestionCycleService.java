@@ -8,6 +8,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import ca.trackline.api.alerts.AlertLifecycleService;
 import ca.trackline.api.analytics.progress.ProgressMetrics;
 import ca.trackline.api.analytics.progress.RouteProgressProjector;
 import ca.trackline.api.analytics.progress.RouteProgressSnapshot;
@@ -52,6 +53,7 @@ public class IngestionCycleService {
     private final LiveStateStore liveState;
     private final InProcessSnapshotCache inProcessCache;
     private final StreamHub streamHub;
+    private final AlertLifecycleService alertLifecycle;
     private final IngestionRunRecorder runRecorder;
     private final IngestionMetrics metrics;
     private final RealtimeProperties properties;
@@ -76,6 +78,7 @@ public class IngestionCycleService {
             LiveStateStore liveState,
             InProcessSnapshotCache inProcessCache,
             StreamHub streamHub,
+            AlertLifecycleService alertLifecycle,
             IngestionRunRecorder runRecorder,
             IngestionMetrics metrics,
             RealtimeProperties properties,
@@ -89,6 +92,7 @@ public class IngestionCycleService {
         this.liveState = liveState;
         this.inProcessCache = inProcessCache;
         this.streamHub = streamHub;
+        this.alertLifecycle = alertLifecycle;
         this.runRecorder = runRecorder;
         this.metrics = metrics;
         this.properties = properties;
@@ -132,6 +136,11 @@ public class IngestionCycleService {
             // The publisher has not produced anything new. Recording this rather than
             // reprocessing keeps the measured cycle duration honest and makes a
             // stalled publisher visible.
+            if (feed == RealtimeFeed.ALERTS) {
+                // Fetched again and the same: the alerts it carries were seen now, which
+                // is what last_seen_at records, not merely when the publisher last edited.
+                alertLifecycle.confirmUnchanged(Instant.now(clock));
+            }
             long durationMs = elapsedMs(startedNanos);
             metrics.recordCycle(feed, IngestionRunStatus.NO_CHANGE, durationMs);
             runRecorder.record(feed, startedAt, durationMs, IngestionRunStatus.NO_CHANGE,
@@ -163,6 +172,10 @@ public class IngestionCycleService {
             publishToStreams(snapshot);
         }
 
+        if (feed == RealtimeFeed.ALERTS) {
+            applyAlerts(snapshot, status);
+        }
+
         lastHeaderTimestamp.put(feed, snapshot.headerTimestamp());
         lastEntityCount.put(feed, snapshot.acceptedCount());
 
@@ -177,6 +190,25 @@ public class IngestionCycleService {
                 snapshot.rejections(), progress.countsByStatus());
 
         return new IngestionCycleResult(feed, status, snapshot, stored, durationMs, null);
+    }
+
+    /**
+     * Records the alerts the feed carries, unless the payload is not to be trusted.
+     *
+     * <p>Applying a payload resolves every stored alert missing from it, so a payload
+     * that is wrong in the direction of "fewer" would end alerts that are still in force.
+     * A suspect cycle is therefore not applied. The cost is delay, not loss: a feed that
+     * really has cleared is suspect once, because the count fell, and trusted on the next
+     * cycle, which compares against the new, lower count.
+     */
+    private void applyAlerts(FeedSnapshot snapshot, IngestionRunStatus status) {
+        if (status != IngestionRunStatus.SUCCESS) {
+            log.warn("ALERTS cycle was {}; stored alerts were left as they were", status);
+            return;
+        }
+        AlertLifecycleService.Outcome outcome = alertLifecycle.apply(snapshot.alerts(), Instant.now(clock));
+        log.info("ALERTS applied opened={} changed={} confirmed={} resolved={}",
+                outcome.opened(), outcome.changed(), outcome.confirmed(), outcome.resolved());
     }
 
     /**

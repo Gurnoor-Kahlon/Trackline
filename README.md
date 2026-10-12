@@ -19,7 +19,9 @@ Local infrastructure (PostgreSQL + PostGIS, Redis) runs via Docker Compose. The
 Spring Boot API runs, migrates its schema with Flyway on startup, and serves
 `GET /api/v1/network/status`. It also polls the TTC's three GTFS-Realtime feeds on
 a schedule, validating and deduplicating vehicle positions into a partitioned
-observation table, and serves them live from a Redis-backed cache. The TTC schedule feed
+observation table, and serves them live from a Redis-backed cache. Service alerts are
+stored with a lifecycle Trackline observes itself, because the feed publishes no start
+or end time, and are served from `GET /api/v1/alerts`. The TTC schedule feed
 can be imported: one command loads the whole network — 236 routes, 9,409 stops,
 138,036 trips and 4,357,307 scheduled calls — into PostgreSQL, then derives what
 the feed does not provide: 1,571 route linestrings, 108 stations clustered from
@@ -32,9 +34,10 @@ which way it is going, derived from its position (see
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
-sheet, skeleton, empty and error primitives. The home page still calls no API, so
-every data region on it states that nothing has been measured rather than showing
-placeholder figures. `/map` does call the API: it draws any of the 236 routes on a
+sheet, skeleton, empty and error primitives. The home page shows the newest active
+service alerts and still calls nothing else, so its other regions state that nothing
+has been measured rather than showing placeholder figures. `/alerts` lists every alert
+with filters by mode and route, and `/map` does call the API: it draws any of the 236 routes on a
 MapLibre basemap from the agency's own schedule geometry, with the stops that
 route serves, filters by mode and name, and a list beside the map that offers
 every interaction the map does. Live vehicles move on it: the API streams them over
@@ -319,6 +322,26 @@ dropped rather than allowed to hold memory or delay the others. The protocol, th
 limits and the places it differs from the original plan are in
 [docs/streaming.md](docs/streaming.md); measurements with 25 simultaneous clients
 are in [docs/performance.md](docs/performance.md).
+
+### Service alerts
+
+The alerts feed is read every minute and each alert is stored as one continuous stretch
+of being present in the feed: when Trackline first saw it, last saw it, and the first
+cycle that did not contain it. Those are observations, so they bound when an alert began
+and ended and are never presented as the moment it did. An alert that disappears and
+returns is a new stretch.
+
+Two measured facts shape what is served. Every alert on the live feed states
+`UNKNOWN_CAUSE` and `UNKNOWN_EFFECT`, so nothing is grouped or ranked by either, and the
+TTC publishes no severity. And the publisher cuts each alert's header off mid-word at about
+31 characters, so the interface shows the description. An alert naming a route the imported
+schedule does not have is kept and shown as published, not dropped. See
+[docs/alerts.md](docs/alerts.md).
+
+```bash
+curl "http://localhost:8080/api/v1/alerts?route=501"
+curl "http://localhost:8080/api/v1/alerts?active=false"   # alerts that have left the feed
+```
 
 ### Database
 

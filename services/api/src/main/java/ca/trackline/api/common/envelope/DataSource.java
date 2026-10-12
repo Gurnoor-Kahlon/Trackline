@@ -19,6 +19,12 @@ public enum DataSource {
     /** Redis was unavailable; served from PostgreSQL instead. */
     DB_FALLBACK,
 
+    /**
+     * Read from Trackline's own database, which is the record for this data and has no
+     * cache in front of it. Current as of the last ingestion cycle that was applied.
+     */
+    STORED,
+
     /** Static GTFS data that has no realtime component. */
     STATIC,
 

@@ -11,7 +11,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongFunction;
+import java.util.function.Supplier;
 
+import ca.trackline.api.alerts.ActiveAlerts;
 import ca.trackline.api.gtfs.realtime.VehicleSnapshot;
 import ca.trackline.api.livestate.LiveVehicleReader;
 import ca.trackline.api.livestate.LiveVehicles;
@@ -55,6 +57,7 @@ public class StreamHub implements DisposableBean {
     private final EventRing ring;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final LongFunction<SseEmitter> emitters;
+    private final Supplier<Integer> activeAlerts;
 
     private final ReentrantLock lock = new ReentrantLock();
 
@@ -71,8 +74,12 @@ public class StreamHub implements DisposableBean {
 
     @Autowired
     public StreamHub(
-            StreamProperties properties, LiveVehicleReader fallbackReader, Clock clock, StreamMetrics metrics) {
-        this(properties, fallbackReader, clock, metrics, SseEmitter::new);
+            StreamProperties properties,
+            LiveVehicleReader fallbackReader,
+            Clock clock,
+            StreamMetrics metrics,
+            ActiveAlerts activeAlerts) {
+        this(properties, fallbackReader, clock, metrics, activeAlerts::current, SseEmitter::new);
     }
 
     /**
@@ -85,8 +92,10 @@ public class StreamHub implements DisposableBean {
             LiveVehicleReader fallbackReader,
             Clock clock,
             StreamMetrics metrics,
+            Supplier<Integer> activeAlerts,
             LongFunction<SseEmitter> emitters) {
         this.emitters = emitters;
+        this.activeAlerts = activeAlerts;
         this.properties = properties;
         this.fallbackReader = fallbackReader;
         this.clock = clock;
@@ -196,7 +205,7 @@ public class StreamHub implements DisposableBean {
         try {
             registry.admit(clientKey);
             SseEmitter emitter = emitters.apply(properties.emitterTimeout().toMillis());
-            NetworkRenderer renderer = new NetworkRenderer(clock);
+            NetworkRenderer renderer = new NetworkRenderer(clock, activeAlerts);
             Subscription subscription = newSubscription(NETWORK, clientKey, emitter, renderer);
 
             Map<String, Tracked> fleet = initialized ? latest : fallback.fleet();

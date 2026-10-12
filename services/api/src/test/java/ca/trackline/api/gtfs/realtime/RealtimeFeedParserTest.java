@@ -127,6 +127,63 @@ class RealtimeFeedParserTest {
     }
 
     @Test
+    void everyRecordedAlertStatesNeitherACauseNorAnEffect() {
+        FeedSnapshot snapshot = parse(RealtimeFeed.ALERTS, "alerts.pb");
+
+        // The fields are present, which is why a count of "alerts with an effect" would look
+        // healthy, but every one is the specification's UNKNOWN value. If the TTC starts
+        // publishing real effects, grouping and ranking by effect become possible and the
+        // decisions that assumed otherwise should be revisited, so this fails loudly.
+        assertThat(snapshot.alerts()).isNotEmpty();
+        assertThat(snapshot.alerts()).allSatisfy(alert -> {
+            assertThat(alert.cause()).isEqualTo(1);
+            assertThat(alert.effect()).isEqualTo(8);
+        });
+    }
+
+    @Test
+    void theRecordedHeadersAreCutOffAndTheDescriptionsAreWhole() {
+        FeedSnapshot snapshot = parse(RealtimeFeed.ALERTS, "alerts.pb");
+
+        // The publisher truncates the header, mid-word, at about 31 characters. The
+        // description carries the whole sentence, which is why display prefers it.
+        long truncated = snapshot.alerts().stream()
+                .filter(alert -> alert.description() != null)
+                .filter(alert -> alert.description().length() > alert.header().length())
+                .filter(alert -> alert.description().startsWith(alert.header()))
+                .count();
+
+        assertThat(truncated).isPositive();
+        assertThat(snapshot.alerts()).allSatisfy(alert -> assertThat(alert.header().length()).isLessThanOrEqualTo(40));
+    }
+
+    @Test
+    void alertTextWithNulCharactersHasThemRemovedBecauseTheDatabaseCannotStoreThem() {
+        String withNul = "Detour" + (char) 0 + " via Bay";
+
+        assertThat(RealtimeFeedParser.clean(withNul, 100)).isEqualTo("Detour via Bay");
+    }
+
+    @Test
+    void overlongAlertTextIsCutToTheLimit() {
+        assertThat(RealtimeFeedParser.clean("x".repeat(500), 300)).hasSize(300);
+        assertThat(RealtimeFeedParser.clean("short", 300)).isEqualTo("short");
+    }
+
+    @Test
+    void cuttingAlertTextNeverSplitsACharacterThatTakesTwoUnits() {
+        // One character stored as a surrogate pair. Cutting between its two units would
+        // leave an invalid string that the database may refuse.
+        String bus = new String(Character.toChars(0x1F68C));
+        String text = "a" + bus.repeat(5);
+
+        String cut = RealtimeFeedParser.clean(text, 4);
+
+        assertThat(cut).isEqualTo("a" + bus.repeat(3));
+        assertThat(cut.codePointCount(0, cut.length())).isEqualTo(4);
+    }
+
+    @Test
     void anEmptyPayloadParsesToNothingRatherThanFailing() {
         FeedSnapshot snapshot = parse(RealtimeFeed.VEHICLE_POSITIONS, "empty.pb");
 

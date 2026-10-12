@@ -84,7 +84,7 @@ public class StreamController {
             summary = "Network-wide counts, refreshed every cycle",
             description = "Each `network` event is the whole current status, so there is nothing to "
                     + "resume: a missed event is corrected by the next. `activeAlerts` is null until "
-                    + "alerts are counted, which is not the same as zero.")
+                    + "alerts have been ingested once, which is not the same as zero.")
     public SseEmitter network(HttpServletRequest request, HttpServletResponse response) {
         prepare(response);
         return hub.connectNetwork(request.getRemoteAddr());

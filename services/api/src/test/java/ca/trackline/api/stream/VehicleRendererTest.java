@@ -213,10 +213,10 @@ class VehicleRendererTest {
     }
 
     @Test
-    void theNetworkStreamReportsCountsAndLeavesAlertsUnmeasured() throws Exception {
+    void theNetworkStreamReportsCountsAndLeavesAlertsUnmeasuredWhenNoCountIsKnown() throws Exception {
         StreamEvent event = delta(List.of(), List.of());
 
-        Outbound outbound = new NetworkRenderer(CLOCK).render(event).get(0);
+        Outbound outbound = new NetworkRenderer(CLOCK, () -> null).render(event).get(0);
 
         assertThat(outbound.name()).isEqualTo("network");
         // No id: each message is the whole status, so there is nothing to resume.
@@ -224,7 +224,14 @@ class VehicleRendererTest {
         JsonNode body = body(outbound);
         assertThat(body.get("vehiclesTracked").asInt()).isEqualTo(10);
         assertThat(body.get("routesReporting").asInt()).isEqualTo(2);
-        // Null, not zero: alerts are not counted yet.
+        // Null, not zero: no count of alerts is known.
         assertThat(body.get("activeAlerts").isNull()).isTrue();
+    }
+
+    @Test
+    void theNetworkStreamReportsTheOpenAlertCountWhenOneIsKnown() throws Exception {
+        Outbound outbound = new NetworkRenderer(CLOCK, () -> 4).render(delta(List.of(), List.of())).get(0);
+
+        assertThat(body(outbound).get("activeAlerts").asInt()).isEqualTo(4);
     }
 }

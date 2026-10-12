@@ -8,7 +8,7 @@
  */
 
 /** Where the data came from. Every response carrying feed data says which. */
-export type DataSource = "LIVE" | "CACHED" | "DB_FALLBACK" | "STATIC" | "NO_DATA";
+export type DataSource = "LIVE" | "CACHED" | "DB_FALLBACK" | "STORED" | "STATIC" | "NO_DATA";
 
 /**
  * Freshness and provenance.
@@ -103,4 +103,62 @@ export type ApiProblem = {
   status: number;
   detail?: string;
   errorId?: string;
+};
+
+/** GTFS-Realtime `Alert.Effect`, as published. The TTC currently sends UNKNOWN_EFFECT for every alert. */
+export type AlertEffect =
+  | "NO_SERVICE"
+  | "REDUCED_SERVICE"
+  | "SIGNIFICANT_DELAYS"
+  | "DETOUR"
+  | "ADDITIONAL_SERVICE"
+  | "MODIFIED_SERVICE"
+  | "OTHER_EFFECT"
+  | "UNKNOWN_EFFECT"
+  | "STOP_MOVED"
+  | "NO_EFFECT"
+  | "ACCESSIBILITY_ISSUE";
+
+/** GTFS-Realtime `Alert.Cause`, as published. The TTC currently sends UNKNOWN_CAUSE for every alert. */
+export type AlertCause = string;
+
+/** A route an alert names. `known` is false when the schedule has no route with that id. */
+export type AlertRoute = {
+  routeId: string;
+  known: boolean;
+  shortName: string | null;
+  longName: string | null;
+  mode: TransitMode | null;
+  colour: string | null;
+  textColour: string | null;
+};
+
+export type AlertStop = {
+  stopId: string;
+  known: boolean;
+  name: string | null;
+};
+
+/**
+ * One stretch of an alert being present in the feed.
+ *
+ * The feed publishes no start or end, so every time is one Trackline observed and each
+ * is an upper bound on the moment it describes.
+ */
+export type ServiceAlert = {
+  id: number;
+  sourceAlertId: string;
+  status: "ACTIVE" | "RESOLVED";
+  cause: AlertCause | null;
+  effect: AlertEffect | null;
+  /** Cut off by the publisher at about 31 characters, mid-word. Prefer `description`. */
+  header: string | null;
+  description: string | null;
+  url: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastChangedAt: string;
+  resolvedAt: string | null;
+  routes: AlertRoute[];
+  stops: AlertStop[];
 };

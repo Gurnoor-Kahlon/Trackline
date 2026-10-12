@@ -120,6 +120,36 @@ class LiveFeedContractTest {
     }
 
     @Test
+    void everyAlertStillStatesNeitherACauseNorAnEffect() throws Exception {
+        FeedSnapshot snapshot = parser.parse(
+                RealtimeFeed.ALERTS, fetch("alerts"), new FeedEntityValidator(Set.of()), Instant.now());
+
+        // Present but meaningless: UNKNOWN_CAUSE (1) and UNKNOWN_EFFECT (8) on every alert,
+        // measured on 2026-10-12. Nothing is grouped or ranked by either because of this. If
+        // the TTC starts stating them, grouping and health inputs can be revisited.
+        assertThat(snapshot.alerts()).isNotEmpty();
+        assertThat(snapshot.alerts()).allSatisfy(alert -> {
+            assertThat(alert.cause()).isEqualTo(1);
+            assertThat(alert.effect()).isEqualTo(8);
+        });
+    }
+
+    @Test
+    void alertHeadersAreStillCutOffWhileDescriptionsAreWhole() throws Exception {
+        FeedSnapshot snapshot = parser.parse(
+                RealtimeFeed.ALERTS, fetch("alerts"), new FeedEntityValidator(Set.of()), Instant.now());
+
+        // The reason the interface shows the description and not the header.
+        long cutOff = snapshot.alerts().stream()
+                .filter(alert -> alert.description() != null && alert.header() != null)
+                .filter(alert -> alert.description().length() > alert.header().length()
+                        && alert.description().startsWith(alert.header()))
+                .count();
+        assertThat(cutOff).isPositive();
+        assertThat(snapshot.alerts()).allSatisfy(alert -> assertThat(alert.header().length()).isLessThanOrEqualTo(40));
+    }
+
+    @Test
     void realtimeRouteIdsStillLookLikeScheduleRouteIds() throws Exception {
         FeedSnapshot snapshot = parser.parse(
                 RealtimeFeed.VEHICLE_POSITIONS, fetch("vehicles"), new FeedEntityValidator(Set.of()), Instant.now());

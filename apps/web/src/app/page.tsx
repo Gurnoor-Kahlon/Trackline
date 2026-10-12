@@ -1,3 +1,4 @@
+import { HomeAlerts } from "@/components/alerts/HomeAlerts";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FreshnessChip } from "@/components/ui/FreshnessChip";
@@ -37,6 +38,8 @@ export default function HomePage() {
           />
         </CardBody>
       </Card>
+
+      <HomeAlerts />
 
       <Card as="section" ariaLabelledBy="routes-heading">
         <CardHeader id="routes-heading" title="Routes" />

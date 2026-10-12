@@ -3,6 +3,7 @@ package ca.trackline.api.stream;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Renders the network stream: the same events as the vehicle stream, reduced to a
@@ -15,16 +16,24 @@ import java.util.List;
 final class NetworkRenderer implements StreamRenderer {
 
     private final Clock clock;
+    private final Supplier<Integer> activeAlerts;
 
-    NetworkRenderer(Clock clock) {
+    /**
+     * @param activeAlerts how many alerts are open, or null while that is not known;
+     *                     read when each message is rendered, because alerts change on
+     *                     their own cycle and not the vehicles'
+     */
+    NetworkRenderer(Clock clock, Supplier<Integer> activeAlerts) {
         this.clock = clock;
+        this.activeAlerts = activeAlerts;
     }
 
     Outbound status(Instant feedTimestamp, int vehiclesTracked, int routesReporting) {
         return new Outbound(
                 null,
                 "network",
-                WireFormat.network(Instant.now(clock), feedTimestamp, vehiclesTracked, routesReporting));
+                WireFormat.network(
+                        Instant.now(clock), feedTimestamp, vehiclesTracked, routesReporting, activeAlerts.get()));
     }
 
     @Override

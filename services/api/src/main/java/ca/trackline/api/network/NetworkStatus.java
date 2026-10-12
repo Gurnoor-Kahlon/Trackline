@@ -10,11 +10,15 @@ package ca.trackline.api.network;
  *
  * @param vehiclesTracked vehicles present in the most recent realtime snapshot
  * @param routesReporting distinct routes those vehicles belong to
- * @param activeAlerts    service alerts currently present, or null while alerts are
- *                        not yet counted. Null, not zero: the alerts feed is polled
- *                        but not persisted until the alerts milestone, and zero would
- *                        claim a measurement that has not been made.
+ * @param activeAlerts    service alerts currently open, or null before alerts have
+ *                        ever been ingested. Null, not zero: until the first alert
+ *                        cycle has been applied nothing has been counted, and zero
+ *                        would claim a measurement that has not been made.
  */
 public record NetworkStatus(int vehiclesTracked, int routesReporting, Integer activeAlerts) {
-    static final NetworkStatus NOTHING_OBSERVED = new NetworkStatus(0, 0, null);
+
+    /** No vehicle has been observed. Alerts are a separate feed, so their count is passed in. */
+    static NetworkStatus nothingObserved(Integer activeAlerts) {
+        return new NetworkStatus(0, 0, activeAlerts);
+    }
 }

@@ -11,6 +11,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import ca.trackline.api.alerts.ActiveAlerts;
 import ca.trackline.api.gtfs.realtime.RealtimeFeed;
 import ca.trackline.api.persistence.entity.IngestionRunStatus;
 import ca.trackline.api.testsupport.PostgisIntegrationTest;
@@ -52,6 +53,9 @@ class IngestionCycleIntegrationTest extends PostgisIntegrationTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private ActiveAlerts activeAlerts;
+
     /**
      * Fixed to the moment the fixtures were recorded.
      *
@@ -90,6 +94,7 @@ class IngestionCycleIntegrationTest extends PostgisIntegrationTest {
         observationWriter.forgetAll();
         jdbc.execute("TRUNCATE vehicle_observations");
         jdbc.execute("DELETE FROM ingestion_runs");
+        jdbc.execute("TRUNCATE service_alerts CASCADE");
         resetCycleMemory();
     }
 
@@ -97,6 +102,7 @@ class IngestionCycleIntegrationTest extends PostgisIntegrationTest {
     void clearUp() {
         jdbc.execute("TRUNCATE vehicle_observations");
         jdbc.execute("DELETE FROM ingestion_runs");
+        jdbc.execute("TRUNCATE service_alerts CASCADE");
     }
 
     @Test
@@ -289,6 +295,108 @@ class IngestionCycleIntegrationTest extends PostgisIntegrationTest {
 
         assertThat(runs()).hasSize(2);
         assertThat(runs()).allSatisfy(run -> assertThat(run.entityCount()).isPositive());
+    }
+
+    // --- alerts -------------------------------------------------------------------------------------
+
+    private int alertRows() {
+        return count("service_alerts");
+    }
+
+    private int openAlertRows() {
+        Integer value = jdbc.queryForObject(
+                "SELECT count(*) FROM service_alerts WHERE resolved_at IS NULL", Integer.class);
+        return value == null ? -1 : value;
+    }
+
+    private Instant lastSeen() {
+        return jdbc.queryForObject("SELECT max(last_seen_at) FROM service_alerts", java.sql.Timestamp.class)
+                .toInstant();
+    }
+
+    @Test
+    void anAlertsCycleStoresTheAlertsAndCountsThem() {
+        serve("alerts", bytes("alerts.pb"));
+
+        IngestionCycleResult result = cycleService.runCycle(RealtimeFeed.ALERTS);
+
+        assertThat(result.status()).isEqualTo(IngestionRunStatus.SUCCESS);
+        assertThat(alertRows()).isEqualTo(result.snapshot().alerts().size()).isPositive();
+        assertThat(openAlertRows()).isEqualTo(alertRows());
+        assertThat(activeAlerts.current()).isEqualTo(alertRows());
+        assertThat(count("service_alert_entities")).isPositive();
+    }
+
+    @Test
+    void aLaterCycleOfTheSamePayloadConfirmsAlertsInsteadOfDuplicatingThem() {
+        serve("alerts", bytes("alerts.pb"));
+        cycleService.runCycle(RealtimeFeed.ALERTS);
+        int stored = alertRows();
+        Instant firstCycle = lastSeen();
+
+        org.mockito.Mockito.when(clock.instant()).thenReturn(firstCycle.plusSeconds(60));
+        serve("alerts", withAdvancedHeader(bytes("alerts.pb")));
+        IngestionCycleResult second = cycleService.runCycle(RealtimeFeed.ALERTS);
+
+        assertThat(second.status()).isEqualTo(IngestionRunStatus.SUCCESS);
+        assertThat(alertRows()).isEqualTo(stored);
+        assertThat(lastSeen()).isEqualTo(firstCycle.plusSeconds(60));
+    }
+
+    @Test
+    void aPayloadTheFeedHasNotChangedStillCountsAsSeeingItsAlerts() {
+        serve("alerts", bytes("alerts.pb"));
+        cycleService.runCycle(RealtimeFeed.ALERTS);
+        Instant firstCycle = lastSeen();
+
+        org.mockito.Mockito.when(clock.instant()).thenReturn(firstCycle.plusSeconds(60));
+        IngestionCycleResult second = cycleService.runCycle(RealtimeFeed.ALERTS);
+
+        // The header has not advanced, so nothing is reprocessed, but the alerts were fetched
+        // again and are still there, which is what last_seen_at records.
+        assertThat(second.status()).isEqualTo(IngestionRunStatus.NO_CHANGE);
+        assertThat(lastSeen()).isEqualTo(firstCycle.plusSeconds(60));
+    }
+
+    @Test
+    void aFeedThatSuddenlyEmptiesIsNotBelievedAtOnceButIsOnceItStaysEmpty() {
+        serve("alerts", bytes("alerts.pb"));
+        cycleService.runCycle(RealtimeFeed.ALERTS);
+        int stored = alertRows();
+
+        // The recorded payloads share one capture time, so the header is moved past the alerts
+        // payload's to make each of these a new publication and not a repeat of it.
+        byte[] emptied = withAdvancedHeader(bytes("empty.pb"));
+        serve("alerts", emptied);
+        IngestionCycleResult first = cycleService.runCycle(RealtimeFeed.ALERTS);
+
+        // From some alerts to none in one cycle is what a broken feed looks like, so it is
+        // suspect and nothing is ended on its word.
+        assertThat(first.status()).isEqualTo(IngestionRunStatus.SUSPECT);
+        assertThat(openAlertRows()).isEqualTo(stored);
+        assertThat(activeAlerts.current()).isEqualTo(stored);
+
+        serve("alerts", withAdvancedHeader(emptied));
+        IngestionCycleResult second = cycleService.runCycle(RealtimeFeed.ALERTS);
+
+        // Empty twice running, measured against the new baseline, is believed.
+        assertThat(second.status()).isEqualTo(IngestionRunStatus.SUCCESS);
+        assertThat(openAlertRows()).isZero();
+        assertThat(alertRows()).isEqualTo(stored);
+        assertThat(activeAlerts.current()).isZero();
+    }
+
+    @Test
+    void aFailedFetchLeavesTheStoredAlertsAlone() {
+        serve("alerts", bytes("alerts.pb"));
+        cycleService.runCycle(RealtimeFeed.ALERTS);
+        int stored = openAlertRows();
+
+        feedServer.stubFor(WireMock.get("/gtfsrt/alerts").willReturn(WireMock.aResponse().withStatus(503)));
+        IngestionCycleResult failed = cycleService.runCycle(RealtimeFeed.ALERTS);
+
+        assertThat(failed.status()).isEqualTo(IngestionRunStatus.FAILED);
+        assertThat(openAlertRows()).isEqualTo(stored);
     }
 
     /** When a recorded payload says it was published. */
