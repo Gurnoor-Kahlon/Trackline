@@ -6,11 +6,25 @@ import { MapExplorer } from "@/components/map/MapExplorer";
 import { ApiError } from "@/lib/api/client";
 import { fetchRoute, fetchRouteShape, fetchRouteStops } from "@/lib/api/routes";
 import type { RouteDetail, RouteShape, RouteStop, RouteSummary } from "@/lib/api/types";
+import { LiveStore } from "@/lib/live/liveStore";
+import { useLiveVehicles } from "@/lib/live/useLiveVehicles";
+
+import { snapshot as liveSnapshot, vehicle as liveVehicle } from "./live/helpers";
 
 vi.mock("@/lib/api/routes", () => ({
   fetchRoute: vi.fn(),
   fetchRouteShape: vi.fn(),
   fetchRouteStops: vi.fn(),
+}));
+
+/**
+ * The streams are replaced too: jsdom has no EventSource, and what matters here is which
+ * subscription the page asks for, not the transport. The hook is a spy returning a store
+ * the test controls, so the page can be shown a fleet without a network.
+ */
+vi.mock("@/lib/live/useLiveVehicles", () => ({ useLiveVehicles: vi.fn() }));
+vi.mock("@/lib/live/useNetworkStatus", () => ({
+  useNetworkStatus: () => ({ summary: null, connection: "open" }),
 }));
 
 /**
@@ -26,18 +40,22 @@ vi.mock("@/components/map/MapCanvas", () => ({
     stops,
     routeColour,
     selectedStopId,
+    vehicles,
   }: {
     shape: RouteShape | null;
     stops: RouteStop[];
     routeColour: string | null;
     selectedStopId: string | null;
     onStopSelect: (stopId: string) => void;
+    vehicles?: { routeColours: ReadonlyMap<string, string> };
   }) => (
     <div data-testid="map">
       <span data-testid="map-shape">{shape === null ? "none" : shape.shapeId}</span>
       <span data-testid="map-stops">{stops.length}</span>
       <span data-testid="map-colour">{routeColour ?? "none"}</span>
       <span data-testid="map-stop-selection">{selectedStopId ?? "none"}</span>
+      <span data-testid="map-live-colour-501">{vehicles?.routeColours.get("501") ?? "none"}</span>
+      <span data-testid="map-live-colour-unlisted">{vehicles?.routeColours.get("no-such-route") ?? "none"}</span>
     </div>
   ),
 }));
@@ -121,7 +139,12 @@ function detailPanel() {
   return within(screen.getByRole("complementary", { name: "Selected route" }));
 }
 
+let liveStore: LiveStore;
+
 beforeEach(() => {
+  liveStore = new LiveStore();
+  vi.mocked(useLiveVehicles).mockReset();
+  vi.mocked(useLiveVehicles).mockReturnValue(liveStore);
   vi.mocked(fetchRoute).mockReset();
   vi.mocked(fetchRouteShape).mockReset();
   vi.mocked(fetchRouteStops).mockReset();
@@ -275,5 +298,100 @@ describe("MapExplorer", () => {
     // user has no way to detect.
     expect(screen.getByTestId("map-shape")).toHaveTextContent("none");
     expect(screen.getByTestId("map-stops")).toHaveTextContent("0");
+  });
+});
+
+describe("MapExplorer live vehicles", () => {
+  it("follows the whole fleet until a route is chosen", () => {
+    render(<MapExplorer routes={ROUTES} />);
+
+    expect(useLiveVehicles).toHaveBeenLastCalledWith([]);
+  });
+
+  it("narrows the subscription to the selected route, so the server does the filtering", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+    vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+    vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+
+    render(<MapExplorer routes={ROUTES} />);
+    await user.click(filters().getByText("Queen"));
+
+    await waitFor(() => expect(useLiveVehicles).toHaveBeenLastCalledWith(["501"]));
+  });
+
+  it("gives the map each route's published colour and none for a route without one", () => {
+    render(<MapExplorer routes={ROUTES} />);
+
+    expect(screen.getByTestId("map-live-colour-501")).toHaveTextContent("DA251D");
+    expect(screen.getByTestId("map-live-colour-unlisted")).toHaveTextContent("none");
+  });
+
+  it("shows how many vehicles the selected route has running", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+    vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+    vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+    liveStore.dispatch({ type: "connection", status: "open", nowMs: 1_000 });
+    liveStore.dispatch({
+      type: "snapshot",
+      message: liveSnapshot([liveVehicle("a"), liveVehicle("b"), liveVehicle("c")]),
+      eventId: "1",
+      nowMs: 1_000,
+    });
+
+    render(<MapExplorer routes={ROUTES} />);
+    await user.click(filters().getByText("Queen"));
+
+    expect(await detailPanel().findByText("3 tracked now")).toBeInTheDocument();
+  });
+
+  it("calls the count last-known, not live, once the stream has dropped", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+    vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+    vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+    liveStore.dispatch({ type: "connection", status: "open", nowMs: 1_000 });
+    liveStore.dispatch({
+      type: "snapshot",
+      message: liveSnapshot([liveVehicle("a"), liveVehicle("b"), liveVehicle("c")]),
+      eventId: "1",
+      nowMs: 1_000,
+    });
+    liveStore.dispatch({ type: "connection", status: "reconnecting", nowMs: 2_000 });
+
+    render(<MapExplorer routes={ROUTES} />);
+    await user.click(filters().getByText("Queen"));
+
+    expect(await detailPanel().findByText("3 last known")).toBeInTheDocument();
+    expect(detailPanel().queryByText(/tracked now/)).not.toBeInTheDocument();
+  });
+
+  it("says none are reporting when the stream knows of none, which is a finding", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+    vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+    vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+    liveStore.dispatch({ type: "connection", status: "open", nowMs: 1_000 });
+    liveStore.dispatch({ type: "snapshot", message: liveSnapshot([]), eventId: "1", nowMs: 1_000 });
+
+    render(<MapExplorer routes={ROUTES} />);
+    await user.click(filters().getByText("Queen"));
+
+    expect(await detailPanel().findByText("None reporting now")).toBeInTheDocument();
+  });
+
+  it("says connecting, not none, before the first snapshot has arrived", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+    vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+    vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+
+    render(<MapExplorer routes={ROUTES} />);
+    await user.click(filters().getByText("Queen"));
+
+    // Not knowing yet and knowing there are none are different claims.
+    expect(await detailPanel().findByText("Connecting…")).toBeInTheDocument();
+    expect(detailPanel().queryByText("None reporting now")).not.toBeInTheDocument();
   });
 });

@@ -17,6 +17,14 @@ type RouteDetailPanelProps = {
   onStopSelect: (stopId: string) => void;
   loading: boolean;
   error: string | null;
+  /**
+   * Vehicles the live stream holds for this route, or null before the first snapshot
+   * has arrived. Not the same as zero: null means not known yet, zero means known to be
+   * none running.
+   */
+  liveVehicles?: number | null | undefined;
+  /** False once the stream has dropped, so the count is last-known rather than live. */
+  liveVehiclesCurrent?: boolean | undefined;
 };
 
 /** GTFS wheelchair_boarding, stated exactly as published and never inferred. */
@@ -42,6 +50,8 @@ export function RouteDetailPanel({
   onStopSelect,
   loading,
   error,
+  liveVehicles = null,
+  liveVehiclesCurrent = true,
 }: RouteDetailPanelProps) {
   if (error !== null) {
     return <ErrorState title="Could not load this route" description={error} />;
@@ -107,7 +117,9 @@ export function RouteDetailPanel({
         <dd className="tabular text-ink">{direction?.stopCount ?? stops.length}</dd>
         <dt className="text-ink-muted">Live vehicles</dt>
         {/* Said plainly, because an empty map on Line 1 is otherwise read as a fault. */}
-        <dd className="text-ink">{route.supportsRealtime ? "Published by the TTC" : "Not published"}</dd>
+        <dd className="tabular text-ink">
+          {route.supportsRealtime ? describeLiveVehicles(liveVehicles, liveVehiclesCurrent) : "Not published"}
+        </dd>
       </dl>
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -159,4 +171,18 @@ export function RouteDetailPanel({
       </div>
     </div>
   );
+}
+
+/** What the live count says. Zero is a finding; null is the absence of one. */
+function describeLiveVehicles(count: number | null, current: boolean): string {
+  if (count === null) {
+    return "Connecting…";
+  }
+  if (!current) {
+    return `${count} last known`;
+  }
+  if (count === 0) {
+    return "None reporting now";
+  }
+  return `${count} tracked now`;
 }

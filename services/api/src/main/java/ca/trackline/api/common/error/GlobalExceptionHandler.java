@@ -1,5 +1,6 @@
 package ca.trackline.api.common.error;
 
+import java.io.IOException;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
@@ -9,6 +10,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
@@ -16,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -77,6 +80,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
+     * The server is holding as many live streams as it will. Retry-After says when
+     * trying again is reasonable, so a reconnecting client backs off instead of
+     * hammering a server that has just told it no.
+     */
+    @ExceptionHandler(TooManyConnectionsException.class)
+    public ResponseEntity<ProblemDetail> handleTooManyConnections(
+            TooManyConnectionsException exception, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage());
+        problem.setTitle("Too many live connections");
+        problem.setType(URI.create(TYPE_BASE + "too-many-connections"));
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(decorate(problem, request.getRequestURI()));
+    }
+
+    /**
      * A query or path parameter outside its allowed range.
      *
      * <p>Caps on page size, radius and result count are a protection, not an
@@ -110,6 +129,30 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         String path = violation.getPropertyPath().toString();
         int lastDot = path.lastIndexOf('.');
         return lastDot < 0 ? path : path.substring(lastDot + 1);
+    }
+
+    /**
+     * A write failing because the other end has gone.
+     *
+     * <p>A live stream is opened by writing to the client, and a browser tab can be
+     * closed in the middle of it. The failed write surfaces here as a bare I/O error,
+     * and without this it would be logged as an unhandled exception and then fail a
+     * second time trying to write a JSON error into a response that is already an
+     * event stream. Someone leaving is not an error, so it is dropped quietly.
+     *
+     * <p>Only for event-stream responses. An I/O error anywhere else is still a
+     * server fault and still reaches the catch-all.
+     */
+    @ExceptionHandler(IOException.class)
+    public ResponseEntity<ProblemDetail> handleIo(
+            IOException exception, HttpServletRequest request, HttpServletResponse response) {
+        String contentType = response.getContentType();
+        if (contentType != null && contentType.startsWith(MediaType.TEXT_EVENT_STREAM_VALUE)) {
+            log.debug("Stream client left before the response was written: {}", exception.toString());
+            // Null marks the request as handled with nothing further to write.
+            return null;
+        }
+        return handleUnexpected(exception, request);
     }
 
     /**

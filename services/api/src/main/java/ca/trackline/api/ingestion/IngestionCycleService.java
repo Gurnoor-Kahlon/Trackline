@@ -20,6 +20,7 @@ import ca.trackline.api.gtfs.realtime.TtcRealtimeClient;
 import ca.trackline.api.livestate.InProcessSnapshotCache;
 import ca.trackline.api.livestate.LiveStateStore;
 import ca.trackline.api.persistence.entity.IngestionRunStatus;
+import ca.trackline.api.stream.StreamHub;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,6 +51,7 @@ public class IngestionCycleService {
     private final ProgressMetrics progressMetrics;
     private final LiveStateStore liveState;
     private final InProcessSnapshotCache inProcessCache;
+    private final StreamHub streamHub;
     private final IngestionRunRecorder runRecorder;
     private final IngestionMetrics metrics;
     private final RealtimeProperties properties;
@@ -73,6 +75,7 @@ public class IngestionCycleService {
             ProgressMetrics progressMetrics,
             LiveStateStore liveState,
             InProcessSnapshotCache inProcessCache,
+            StreamHub streamHub,
             IngestionRunRecorder runRecorder,
             IngestionMetrics metrics,
             RealtimeProperties properties,
@@ -85,6 +88,7 @@ public class IngestionCycleService {
         this.progressMetrics = progressMetrics;
         this.liveState = liveState;
         this.inProcessCache = inProcessCache;
+        this.streamHub = streamHub;
         this.runRecorder = runRecorder;
         this.metrics = metrics;
         this.properties = properties;
@@ -156,6 +160,7 @@ public class IngestionCycleService {
             // thing that is down.
             inProcessCache.store(snapshot.vehicles(), snapshot.headerTimestamp());
             liveState.replaceVehicles(snapshot.vehicles(), snapshot.headerTimestamp());
+            publishToStreams(snapshot);
         }
 
         lastHeaderTimestamp.put(feed, snapshot.headerTimestamp());
@@ -172,6 +177,21 @@ public class IngestionCycleService {
                 snapshot.rejections(), progress.countsByStatus());
 
         return new IngestionCycleResult(feed, status, snapshot, stored, durationMs, null);
+    }
+
+    /**
+     * Pushes the cycle to connected clients.
+     *
+     * <p>Streaming is a view over data already stored and cached, so a failure here
+     * must cost a client one update, never the cycle: the readings are written and
+     * cached before this runs, and an exception must not unwind past them.
+     */
+    private void publishToStreams(FeedSnapshot snapshot) {
+        try {
+            streamHub.publish(snapshot.vehicles(), snapshot.headerTimestamp());
+        } catch (RuntimeException failure) {
+            log.warn("Could not publish the cycle to live streams: {}", failure.toString());
+        }
     }
 
     /**

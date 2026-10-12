@@ -1,8 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
+import { LiveStatusChip } from "@/components/map/LiveStatusChip";
 import { RouteDetailPanel } from "@/components/map/RouteDetailPanel";
 import { RouteFilterPanel } from "@/components/map/RouteFilterPanel";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +11,8 @@ import { Sheet } from "@/components/ui/Sheet";
 import { ApiError } from "@/lib/api/client";
 import { fetchRoute, fetchRouteShape, fetchRouteStops } from "@/lib/api/routes";
 import type { RouteDetail, RouteShape, RouteStop, RouteSummary } from "@/lib/api/types";
+import { useLiveVehicles } from "@/lib/live/useLiveVehicles";
+import { useNetworkStatus } from "@/lib/live/useNetworkStatus";
 import { EMPTY_FILTER, type RouteFilter } from "@/lib/map/routeFilter";
 
 /**
@@ -76,6 +79,32 @@ export function MapExplorer({ routes }: MapExplorerProps) {
   const [directionId, setDirectionId] = useState(0);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  // The vehicles shown follow the selection: the whole fleet until a route is chosen,
+  // then just that route. Changing the route opens a new subscription, so the server
+  // does the filtering and the page is never sent vehicles it would only discard.
+  const liveStore = useLiveVehicles(selectedRouteId === null ? NO_ROUTES : [selectedRouteId]);
+  const network = useNetworkStatus();
+  const routeColours = useMemo(() => colourByRoute(routes), [routes]);
+  const liveFeed = useMemo(() => ({ store: liveStore, routeColours }), [liveStore, routeColours]);
+
+  // How many vehicles the stream holds, or null until the first snapshot has arrived.
+  // A number, so the page re-renders when the count changes and not for every event.
+  const liveVehicleCount = useSyncExternalStore(
+    liveStore.subscribe,
+    () => {
+      const live = liveStore.getState();
+      return live.lastEventId === null ? null : live.vehicles.size;
+    },
+    () => null,
+  );
+  // Whether those vehicles are being kept current: after the stream drops, the count is
+  // what was last known and must not be worded as though it were live.
+  const liveConnected = useSyncExternalStore(
+    liveStore.subscribe,
+    () => liveStore.getState().connection === "open",
+    () => false,
+  );
 
   const [routeResult, setRouteResult] = useState<RouteResult | null>(null);
   const [geometryResult, setGeometryResult] = useState<GeometryResult | null>(null);
@@ -198,6 +227,8 @@ export function MapExplorer({ routes }: MapExplorerProps) {
       onStopSelect={setSelectedStopId}
       loading={loading}
       error={error}
+      liveVehicles={selectedRouteId === null ? null : liveVehicleCount}
+      liveVehiclesCurrent={liveConnected}
     />
   );
 
@@ -229,7 +260,7 @@ export function MapExplorer({ routes }: MapExplorerProps) {
       <div
         role="region"
         aria-label="Route map"
-        className="h-[55dvh] min-w-0 overflow-hidden rounded-card border border-border lg:h-auto lg:flex-1"
+        className="relative h-[55dvh] min-w-0 overflow-hidden rounded-card border border-border lg:h-auto lg:flex-1"
       >
         <MapCanvas
           shape={shape}
@@ -237,7 +268,15 @@ export function MapExplorer({ routes }: MapExplorerProps) {
           routeColour={selectedSummary?.colour ?? null}
           onStopSelect={setSelectedStopId}
           selectedStopId={selectedStopId}
+          vehicles={liveFeed}
         />
+        {/* Over the map, not beside it, so it is seen at a glance and costs no layout. At
+            the top, clear of the zoom buttons, because the bottom edge carries the basemap
+            attribution that must stay readable. It passes clicks through everywhere except
+            on itself. */}
+        <div className="pointer-events-none absolute top-2 right-14 left-2 z-10 sm:top-3 sm:left-3">
+          <LiveStatusChip store={liveStore} network={network} className="pointer-events-auto" />
+        </div>
       </div>
 
       <aside
@@ -288,4 +327,18 @@ function describe(cause: unknown): string {
       : "The Trackline API could not be reached. Check that it is running.";
   }
   return "Something went wrong loading this route.";
+}
+
+/** A stable empty list, so "no route chosen" is the same value on every render. */
+const NO_ROUTES: readonly string[] = [];
+
+/** Route id to its published colour, leaving out the routes that published none. */
+function colourByRoute(routes: readonly RouteSummary[]): ReadonlyMap<string, string> {
+  const colours = new Map<string, string>();
+  for (const route of routes) {
+    if (route.colour !== null) {
+      colours.set(route.routeId, route.colour);
+    }
+  }
+  return colours;
 }

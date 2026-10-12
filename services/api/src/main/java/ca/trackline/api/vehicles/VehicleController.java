@@ -5,7 +5,7 @@ import java.time.Instant;
 
 import ca.trackline.api.common.envelope.ApiEnvelope;
 import ca.trackline.api.common.envelope.ResponseMeta;
-import ca.trackline.api.common.error.InvalidRequestException;
+import ca.trackline.api.common.geo.BoundingBox;
 import ca.trackline.api.common.error.ResourceNotFoundException;
 import ca.trackline.api.livestate.LiveVehicleReader;
 import ca.trackline.api.livestate.LiveVehicles;
@@ -35,17 +35,6 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Vehicles", description = "Live vehicle positions")
 public class VehicleController {
 
-    /**
-     * Largest bounding box a caller may ask for, in degrees.
-     *
-     * <p>Toronto spans about 0.4 degrees of latitude, so a degree in each direction
-     * covers the service area generously. A request larger than this is asking for
-     * the whole fleet by another name and should say so with no bbox at all.
-     */
-    private static final double MAX_BOUNDING_BOX_DEGREES = 1.0;
-
-    private static final String BBOX_FORMAT = "^-?\\d+(\\.\\d+)?(,-?\\d+(\\.\\d+)?){3}$";
-
     private final LiveVehicleReader vehicles;
     private final RouteQueryRepository routes;
     private final Clock clock;
@@ -66,7 +55,7 @@ public class VehicleController {
     public ApiEnvelope<LiveVehicleSet> list(
             @RequestParam(required = false) String route,
             @RequestParam(required = false)
-                    @Pattern(regexp = BBOX_FORMAT, message = "must be minLon,minLat,maxLon,maxLat")
+                    @Pattern(regexp = BoundingBox.FORMAT, message = "must be minLon,minLat,maxLon,maxLat")
                     String bbox) {
 
         LiveVehicles live;
@@ -93,23 +82,9 @@ public class VehicleController {
     }
 
     private LiveVehicles readBoundingBox(String bbox) {
-        String[] parts = bbox.split(",");
-        double minLongitude = Double.parseDouble(parts[0]);
-        double minLatitude = Double.parseDouble(parts[1]);
-        double maxLongitude = Double.parseDouble(parts[2]);
-        double maxLatitude = Double.parseDouble(parts[3]);
-
-        if (maxLongitude < minLongitude || maxLatitude < minLatitude) {
-            throw new InvalidRequestException(
-                    "bbox corners are in the wrong order: expected minLon,minLat,maxLon,maxLat");
-        }
-        if (maxLongitude - minLongitude > MAX_BOUNDING_BOX_DEGREES
-                || maxLatitude - minLatitude > MAX_BOUNDING_BOX_DEGREES) {
-            throw new InvalidRequestException(
-                    "bbox may not span more than %s degrees".formatted(MAX_BOUNDING_BOX_DEGREES));
-        }
-
-        return vehicles.readInBoundingBox(minLongitude, minLatitude, maxLongitude, maxLatitude);
+        BoundingBox box = BoundingBox.parse(bbox);
+        return vehicles.readInBoundingBox(
+                box.minLongitude(), box.minLatitude(), box.maxLongitude(), box.maxLatitude());
     }
 
     private void requireRoute(String routeId) {

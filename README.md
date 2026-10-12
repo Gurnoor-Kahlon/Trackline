@@ -37,7 +37,11 @@ every data region on it states that nothing has been measured rather than showin
 placeholder figures. `/map` does call the API: it draws any of the 236 routes on a
 MapLibre basemap from the agency's own schedule geometry, with the stops that
 route serves, filters by mode and name, and a list beside the map that offers
-every interaction the map does. No vehicles are on it yet.
+every interaction the map does. Live vehicles move on it: the API streams them over
+Server-Sent Events, and the page draws each as an arrow facing its heading, coloured
+by its route, easing between real reports and never drawing a marker ahead of the
+latest one. A chip on the map says how old the data is, and says so plainly when the
+connection drops or the feed goes quiet (see [docs/streaming.md](docs/streaming.md)).
 
 ## Planned stack
 
@@ -295,6 +299,26 @@ several design decisions. It is excluded from the normal build and run on purpos
 ```bash
 cd services/api && ./mvnw test -Dgroups=live -DexcludedGroups= -DfailIfNoTests=false
 ```
+
+### Live streaming
+
+`GET /api/v1/stream/vehicles` sends a snapshot of the fleet when a client connects
+and then only what changed each cycle, filtered on the server by route or bounding
+box so a page watching one route is not sent the whole network. `/stream/network`
+sends the network-wide counts. A heartbeat every 15 s keeps proxies from closing
+an idle connection, and a client that reconnects with `Last-Event-ID` is replayed
+what it missed only if the replay can be proved complete; otherwise it is sent a
+fresh snapshot, never a replay that might have a gap.
+
+```bash
+curl -N "http://localhost:8080/api/v1/stream/vehicles?routes=501"
+```
+
+Connections are capped (500 in total, 20 per address), and a slow client is
+dropped rather than allowed to hold memory or delay the others. The protocol, the
+limits and the places it differs from the original plan are in
+[docs/streaming.md](docs/streaming.md); measurements with 25 simultaneous clients
+are in [docs/performance.md](docs/performance.md).
 
 ### Database
 

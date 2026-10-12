@@ -284,3 +284,53 @@ those constraints within the same transaction.
 The import is a monthly operator task, not a request path, so a few minutes is
 acceptable today. It is recorded here so that a future change can be judged
 against a real baseline rather than a memory of one.
+
+---
+
+## Live streaming
+
+**Measured 2026-10-07** by `StreamFanoutMeasurementTest`, which runs a real HTTP
+server, 25 real SSE clients and 30 publish cycles of a synthetic fleet shaped like
+the real one: 1,500 vehicles, 1,000 of them moving 30 m per cycle. Clients and
+server share one JVM on one laptop, so each client's own parsing is included in the
+latencies. They are an upper bound on what a client would see, not a model of a
+network. The fleet is synthetic because the point is the fanout, not the feed; the
+size and the share that moves per cycle are taken from the real feed.
+
+| Measure | Run 1 | Run 2 |
+| --- | ---: | ---: |
+| Snapshot on connect | 77,911 B | 77,911 B |
+| Delta, median / max | 51,705 / 78,045 B | 51,705 / 78,045 B |
+| `publish()` p50 / p95 / max | 2.40 / 11.39 / 15.63 ms | 1.65 / 26.90 / 68.52 ms |
+| Publish to received, p50 / p95 / max | 11.8 / 21.8 / 25.9 ms | 20.4 / 57.4 / 92.0 ms |
+| Deliveries (25 clients x 30 cycles) | 750, none lost | 750, none lost |
+| Replay ring of 30 events | about 8-9 MB | about 8.2 MB |
+
+Run 2 was taken during a full `./mvnw verify` with the development API also running
+on the same machine, which is the likely reason its tails are longer; run 1's
+conditions were not recorded. Both are published rather than the better one, because
+the spread between them is the honest picture of a laptop. Sizes do not vary, since
+they depend only on the data.
+
+What these say:
+
+- The cost of a cycle is a few milliseconds of computation and then the writes to
+  clients. With 25 clients, the slowest delivery in either run was under 100 ms,
+  against a feed that publishes about every 20 s.
+- A delta is two thirds the size of a snapshot because two thirds of the fleet
+  moves each cycle. Deltas pay off less for the whole fleet than for a client
+  watching one route, which is what the web page does when a route is selected:
+  server-side filtering is the larger saving and is why the page subscribes by route.
+- The replay ring is bounded by event count, not bytes. It costs about 8 MB at this
+  fleet size, and would grow with the fleet.
+
+Not measured: more than 25 clients, a real network, or a browser's rendering cost.
+The 500-connection cap is a configured limit, not a measured capacity.
+
+### In the browser
+
+**Measured 2026-10-07** against the live TTC feed through the API, in the desktop
+app's embedded browser, with about 1,800 vehicles streaming. The map drew all of
+them as arrow and dot markers, and a vehicle's drawn position advanced smoothly
+between reports (four samples over 14 s moved it steadily along its street). No frame
+rate or `setData` cost was recorded, so none is claimed.

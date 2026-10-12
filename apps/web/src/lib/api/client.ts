@@ -11,7 +11,7 @@ import type { ApiEnvelope, ApiProblem } from "@/lib/api/types";
 
 const DEFAULT_BASE_URL = "http://localhost:8080";
 
-function apiBaseUrl(): string {
+export function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_BASE_URL;
 }
 

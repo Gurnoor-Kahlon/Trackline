@@ -1,9 +1,11 @@
 package ca.trackline.api.common.error;
 
+import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -99,6 +101,24 @@ class GlobalExceptionHandlerTest {
                         org.hamcrest.Matchers.containsString("ca.trackline"))));
     }
 
+    @Test
+    void aStreamClientThatLeftIsDroppedQuietlyNotReportedAsAnUnhandledError() throws Exception {
+        mockMvc.perform(get("/test/stream-gone").accept("text/event-stream"))
+                // Handled, with nothing written: there is nobody to tell.
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+    }
+
+    @Test
+    void anIoErrorAnywhereElseIsStillAServerFault() throws Exception {
+        mockMvc.perform(get("/test/disk"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.title").value("Internal server error"))
+                .andExpect(jsonPath("$.errorId").exists())
+                // Nothing about the failure is described to the caller.
+                .andExpect(jsonPath("$.detail").value("An unexpected error occurred."));
+    }
+
     @RestController
     static class FailingController {
 
@@ -115,6 +135,18 @@ class GlobalExceptionHandlerTest {
         @PostMapping("/test/routes")
         String validatesBody(@Valid @RequestBody RouteRequest request) {
             return request.name();
+        }
+
+        /** What a client closing the tab mid-connect looks like: the content type is already set. */
+        @GetMapping(value = "/test/stream-gone", produces = "text/event-stream")
+        String streamClientGone(HttpServletResponse response) throws IOException {
+            response.setContentType("text/event-stream");
+            throw new IOException("An established connection was aborted by the software in your host machine");
+        }
+
+        @GetMapping("/test/disk")
+        String diskFailure() throws IOException {
+            throw new IOException("disk on fire");
         }
 
         @GetMapping("/test/boom")

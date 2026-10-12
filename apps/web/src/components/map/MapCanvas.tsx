@@ -12,6 +12,9 @@ import {
 import { useEffect, useRef, useSyncExternalStore } from "react";
 
 import type { RouteShape, RouteStop } from "@/lib/api/types";
+import type { LiveStore } from "@/lib/live/liveStore";
+import { classifyFreshness, feedAgeSeconds, serverNowSeconds } from "@/lib/live/liveState";
+import { useInterpolatedPositions } from "@/lib/live/useInterpolatedPositions";
 import {
   DEFAULT_ZOOM,
   MAX_BOUNDS,
@@ -20,6 +23,7 @@ import {
   mapColours,
   mapStyleUrl,
 } from "@/lib/map/mapStyle";
+import { buildFeatures, ensureVehicleLayer, setVehicleData } from "@/lib/map/vehicleLayer";
 import { getServerTheme, getTheme, subscribe } from "@/lib/theme";
 
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -51,6 +55,15 @@ type MapCanvasProps = {
   onStopSelect: (stopId: string) => void;
   /** The currently selected stop, highlighted on the map. */
   selectedStopId: string | null;
+  /** Live vehicles to draw, or omitted for a map with none. */
+  vehicles?: LiveVehicleFeed | undefined;
+};
+
+/** What the map needs to draw live vehicles: where they are, and what colour each route is. */
+export type LiveVehicleFeed = {
+  store: LiveStore;
+  /** Route id to six hex digits without a hash, as the schedule publishes it. */
+  routeColours: ReadonlyMap<string, string>;
 };
 
 /** Everything the layers need, so they can be re-applied at any moment. */
@@ -81,6 +94,7 @@ export function MapCanvas({
   routeColour,
   onStopSelect,
   selectedStopId,
+  vehicles,
 }: MapCanvasProps) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
@@ -195,6 +209,30 @@ export function MapCanvas({
     }
   }, [shape]);
 
+  // Draws the live vehicles. Handed the whole picture each frame, and returns false when
+  // the map is not ready so the same picture is offered again rather than lost. The theme
+  // restarts it: a new style discards every layer, and nothing else would trigger a redraw
+  // of vehicles that have not moved.
+  useInterpolatedPositions(
+    vehicles?.store ?? null,
+    (items, state, wallClockMs) => {
+      const instance = map.current;
+      if (!instance || !styled.current || vehicles === undefined) {
+        return false;
+      }
+      setVehicleData(
+        instance,
+        buildFeatures(items, {
+          routeColours: vehicles.routeColours,
+          serverNowSeconds: serverNowSeconds(state, wallClockMs),
+          freshness: classifyFreshness(feedAgeSeconds(state, wallClockMs)),
+        }),
+      );
+      return true;
+    },
+    theme,
+  );
+
   return (
     // Deliberately not aria-hidden. The canvas itself conveys nothing to a
     // screen reader, but MapLibre puts real focusable buttons inside this
@@ -263,6 +301,9 @@ function addLayers(instance: MapLibreMap) {
       },
     });
   }
+
+  // Last, so vehicles are drawn over the route and its stops rather than under them.
+  ensureVehicleLayer(instance, colours.casing);
 }
 
 function applyData(instance: MapLibreMap, { shape, stops, routeColour, selectedStopId }: MapData) {

@@ -98,6 +98,33 @@ trackline:
     # enough that a dead ingester's last snapshot expires instead of being served
     # forever as though it were current.
     snapshot-ttl: 2m
+  stream:
+    # Idle connections are written to this often. Short enough that a proxy with a
+    # typical 60 s idle timeout never closes one, and that a vanished client is
+    # found within about a beat.
+    heartbeat-interval: 15s
+    # Recent events kept for clients that drop and resume. A cycle arrives about
+    # every 20 s, so 30 events cover about ten minutes: longer than a flaky mobile
+    # connection normally stays down. What that costs in memory, at the event size
+    # measured on the live feed, is recorded in docs/streaming.md.
+    ring-capacity: 30
+    # Every connection holds a queue and a delivery thread while open.
+    max-subscribers: 500
+    max-subscribers-per-client: 20
+    # A connection is ended this often and the client reconnects and resumes,
+    # which renews it without anyone noticing.
+    emitter-timeout: 30m
+    # Events a slow client may fall behind before it is dropped to resume. At one
+    # event per 20 s this is over ten minutes of backlog, so only a stalled
+    # connection is ever dropped.
+    queue-capacity: 32
+    # A vehicle is re-sent when it has moved this far from where it was last sent.
+    # Below it the marker would not visibly move.
+    move-threshold-metres: 5
+    # A reporting vehicle is re-sent at least this often even if it has not moved,
+    # so one held at a light does not look silent and get dimmed as stale. Matches
+    # the observation writer's heartbeat for stationary vehicles.
+    keepalive-interval: 60s
   analytics:
     # Thresholds for placing a vehicle on its route, each set from a measurement
     # over 1,089 route-assigned vehicles in a real snapshot (docs/route-progress.md).
