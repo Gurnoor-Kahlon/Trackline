@@ -1,7 +1,8 @@
 /**
- * Service status vocabulary, mirroring the states the route-health algorithm
- * produces. The algorithm itself is built later; this is the presentation
- * contract it will feed.
+ * Service status vocabulary, mirroring the states the route-health algorithm produces.
+ *
+ * The descriptions say what is measured, which is how evenly vehicles are spaced, and claim
+ * nothing beyond it: the TTC publishes no delay, so no state means "late" or "on time".
  */
 
 export const SERVICE_STATUSES = ["EXCELLENT", "NORMAL", "UNSTABLE", "MAJOR_DISRUPTION", "UNKNOWN"] as const;
@@ -31,11 +32,11 @@ export const SERVICE_STATUS_PRESENTATION: Record<ServiceStatus, ServiceStatusPre
   },
   UNSTABLE: {
     label: "Unstable",
-    description: "Vehicle spacing is uneven, so waits will be inconsistent.",
+    description: "Vehicle spacing is uneven, so waits are likely to be inconsistent.",
   },
   MAJOR_DISRUPTION: {
     label: "Major disruption",
-    description: "Service on this route is badly affected.",
+    description: "Spacing is severely uneven, or far fewer vehicles are running than the timetable calls for.",
   },
   UNKNOWN: {
     label: "Not measured",

@@ -380,3 +380,31 @@ At 11 alerts and 99 entity rows each table, indexes included, is **64 kB**, whic
 smallest size PostgreSQL reports for a table with indexes and says nothing about growth.
 Growth depends on how often the TTC's alerts turn over, which has not been measured over
 more than a few minutes.
+
+---
+
+## Route health
+
+**Measured 2026-10-12** on the live TTC feed, API from source on the same laptop as the
+database, about 13 minutes after start, with around 1,000 vehicles in each snapshot.
+
+| | |
+| --- | --- |
+| Analysis passes | 26 |
+| Mean time per pass | **18.6 ms** |
+| Slowest pass | 20.0 ms |
+| For comparison, projection onto routes in the same cycles (mean) | 159.6 ms |
+
+A pass reads the placed vehicles the cycle already holds and two small tables (470 primary
+shapes and at most as many scheduled headways for one hour), so it adds roughly a tenth to a cycle
+that already spends about 160 ms placing vehicles. The sample is small and the maximum is the
+only tail there is, so read it as "tens of milliseconds".
+
+| Endpoint | Min | Median | Max |
+| --- | ---: | ---: | ---: |
+| `GET /routes/501/health` | 7.1 ms | 8.9 ms | 38.5 ms |
+| `GET /health/routes` (155 routes, 31 KB) | 8.9 ms | 10.9 ms | 36.8 ms |
+
+25 requests each, over `curl` to localhost with a new connection per request, so these include
+connection setup. Both are a Redis read and a small amount of mapping; the list adds one query to
+name the routes. Not measured: the Redis-down path, or load beyond one client.

@@ -1,15 +1,12 @@
 import { HomeAlerts } from "@/components/alerts/HomeAlerts";
-import { Card, CardBody, CardHeader } from "@/components/ui/Card";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { FreshnessChip } from "@/components/ui/FreshnessChip";
+import { HomeNetworkStatus } from "@/components/health/HomeNetworkStatus";
+import { HomeRouteHealth } from "@/components/health/HomeRouteHealth";
 
 /**
  * Home.
  *
- * The structure the finished page uses is here, but every data region reports
- * that nothing has been measured, because no feed has been ingested yet. That is
- * the truth about the system today, so it is what the page says — nothing is
- * filled with plausible-looking numbers to make the layout look finished.
+ * Every region reads the API and says what it measured and how old it is. Where nothing has
+ * been measured a region says that, rather than showing figures that would claim something.
  */
 export default function HomePage() {
   return (
@@ -25,31 +22,11 @@ export default function HomePage() {
         </p>
       </section>
 
-      <Card as="section" ariaLabelledBy="network-heading">
-        <CardHeader
-          id="network-heading"
-          title="Network status"
-          action={<FreshnessChip ageSeconds={null} />}
-        />
-        <CardBody className="pt-2">
-          <EmptyState
-            title="No live data has been recorded yet"
-            description="Realtime ingestion is not running, so there are no vehicle counts to report. This panel will show vehicles tracked, routes reporting and active alerts once it is."
-          />
-        </CardBody>
-      </Card>
+      <HomeNetworkStatus />
+
+      <HomeRouteHealth />
 
       <HomeAlerts />
-
-      <Card as="section" ariaLabelledBy="routes-heading">
-        <CardHeader id="routes-heading" title="Routes" />
-        <CardBody className="pt-2">
-          <EmptyState
-            title="No routes have been imported"
-            description="The TTC schedule feed has not been loaded into the database yet. Once it is, routes appear here with their current service status."
-          />
-        </CardBody>
-      </Card>
     </div>
   );
 }

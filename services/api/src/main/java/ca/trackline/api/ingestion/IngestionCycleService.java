@@ -9,6 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import ca.trackline.api.alerts.AlertLifecycleService;
+import ca.trackline.api.analytics.health.HealthAnalysisMetrics;
+import ca.trackline.api.analytics.health.RouteHealthService;
 import ca.trackline.api.analytics.progress.ProgressMetrics;
 import ca.trackline.api.analytics.progress.RouteProgressProjector;
 import ca.trackline.api.analytics.progress.RouteProgressSnapshot;
@@ -54,6 +56,8 @@ public class IngestionCycleService {
     private final InProcessSnapshotCache inProcessCache;
     private final StreamHub streamHub;
     private final AlertLifecycleService alertLifecycle;
+    private final RouteHealthService routeHealth;
+    private final HealthAnalysisMetrics healthMetrics;
     private final IngestionRunRecorder runRecorder;
     private final IngestionMetrics metrics;
     private final RealtimeProperties properties;
@@ -79,6 +83,8 @@ public class IngestionCycleService {
             InProcessSnapshotCache inProcessCache,
             StreamHub streamHub,
             AlertLifecycleService alertLifecycle,
+            RouteHealthService routeHealth,
+            HealthAnalysisMetrics healthMetrics,
             IngestionRunRecorder runRecorder,
             IngestionMetrics metrics,
             RealtimeProperties properties,
@@ -93,6 +99,8 @@ public class IngestionCycleService {
         this.inProcessCache = inProcessCache;
         this.streamHub = streamHub;
         this.alertLifecycle = alertLifecycle;
+        this.routeHealth = routeHealth;
+        this.healthMetrics = healthMetrics;
         this.runRecorder = runRecorder;
         this.metrics = metrics;
         this.properties = properties;
@@ -170,6 +178,7 @@ public class IngestionCycleService {
             inProcessCache.store(snapshot.vehicles(), snapshot.headerTimestamp());
             liveState.replaceVehicles(snapshot.vehicles(), snapshot.headerTimestamp());
             publishToStreams(snapshot);
+            analyseRouteHealth(snapshot, progress);
         }
 
         if (feed == RealtimeFeed.ALERTS) {
@@ -209,6 +218,26 @@ public class IngestionCycleService {
         AlertLifecycleService.Outcome outcome = alertLifecycle.apply(snapshot.alerts(), Instant.now(clock));
         log.info("ALERTS applied opened={} changed={} confirmed={} resolved={}",
                 outcome.opened(), outcome.changed(), outcome.confirmed(), outcome.resolved());
+    }
+
+    /**
+     * Works out each route's health from the placed vehicles.
+     *
+     * <p>Derived data, like the placement it is built on: a failure here must cost the
+     * verdicts for one cycle and nothing else. The readings are stored and cached before this
+     * runs, so an exception must not unwind past them. Skipped when projection failed, since
+     * there is nothing placed to judge.
+     */
+    private void analyseRouteHealth(FeedSnapshot snapshot, RouteProgressSnapshot progress) {
+        if (progress.size() == 0) {
+            return;
+        }
+        try {
+            routeHealth.analyse(snapshot.vehicles(), progress, snapshot.headerTimestamp());
+        } catch (RuntimeException failure) {
+            healthMetrics.recordFailure();
+            log.warn("Could not analyse route health: {}", failure.toString());
+        }
     }
 
     /**

@@ -147,6 +147,38 @@ trackline:
       max-previous-age: 5m
       # Either side of the vehicle, so the direction is read across about 30 m.
       tangent-window-metres: 15
+    # Route health: how evenly a route's vehicles are spaced, judged against the timetable
+    # (docs/route-health.md). The variation and gap bands are round, documented starting
+    # points, not fitted: the conventional reading of the coefficient of variation of
+    # headway, to be recalibrated once stored samples exist. The windows and counts below
+    # them are set from what the feed does.
+    health:
+      excellent-cv: 0.25
+      unstable-cv: 0.5
+      major-cv: 0.75
+      excellent-gap-ratio: 1.3
+      unstable-gap-ratio: 1.8
+      major-gap-ratio: 2.5
+      major-supply-ratio: 0.5
+      min-vehicles: 2
+      medium-confidence-vehicles: 3
+      high-confidence-vehicles: 5
+      min-gaps-for-variation: 3
+      # The feed's own timestamps advance about every 20 s and a parked vehicle reports
+      # about once a minute, so two minutes is several missed reports.
+      stale-after: 120s
+      stale-fraction-for-low-confidence: 0.3
+      terminal-zone-metres: 200
+      speed-window: 15m
+      min-speed-span: 3m
+      min-speed-readings: 3
+      min-speed-vehicles: 3
+      # About 90 km/h. Faster than any surface route runs: a figure above it is a
+      # projection error, such as a vehicle matched to the far side of a loop.
+      max-plausible-speed-metres-per-second: 25
+      # Walking pace. The slowest routes measured ran about 2 m/s, streetcars on the busiest
+      # downtown streets included; a median below this is vehicles on a layover.
+      min-plausible-speed-metres-per-second: 1
 
 server:
   port: ${API_PORT:8080}

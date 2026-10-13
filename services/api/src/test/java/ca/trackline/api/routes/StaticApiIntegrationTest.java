@@ -93,6 +93,19 @@ class StaticApiIntegrationTest extends PostgisIntegrationTest {
     }
 
     @Test
+    void routesCanBeLookedUpInBulkByIdInTheUsualOrderWithUnknownIdsAbsent() {
+        List<String> numbers = routes.findRoutesByIds(List.of("501", "no-such-route", "1", "41")).stream()
+                .map(RouteDtos.RouteSummary::routeId)
+                .toList();
+
+        // Numbered routes by number, the same order as every other route list; the unknown id is absent
+        // rather than an error, since a verdict can outlive the route it names after a schedule import.
+        assertThat(numbers).containsExactly("1", "41", "501");
+        assertThat(routes.findRoutesByIds(List.of())).isEmpty();
+        assertThat(routes.findRoutesByIds(List.of("no-such-route"))).isEmpty();
+    }
+
+    @Test
     void modeFilterSelectsOnRouteType() {
         assertThat(routes.findRoutes(TransitMode.SUBWAY, null, 0, 10))
                 .singleElement()

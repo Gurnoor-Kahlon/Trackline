@@ -8,6 +8,7 @@ import { fetchRoute, fetchRouteShape, fetchRouteStops } from "@/lib/api/routes";
 import type { RouteDetail, RouteShape, RouteStop, RouteSummary } from "@/lib/api/types";
 import { LiveStore } from "@/lib/live/liveStore";
 import { useAlerts, type AlertsResult } from "@/lib/alerts/useAlerts";
+import { useRouteHealth } from "@/lib/health/useHealth";
 import { useLiveVehicles } from "@/lib/live/useLiveVehicles";
 
 import { snapshot as liveSnapshot, vehicle as liveVehicle } from "./live/helpers";
@@ -30,6 +31,9 @@ vi.mock("@/lib/live/useNetworkStatus", () => ({
 
 /** Alerts are fetched by their own hook, which is replaced so the page can be shown any answer. */
 vi.mock("@/lib/alerts/useAlerts", () => ({ useAlerts: vi.fn() }));
+
+/** Health likewise: the page is shown any answer, and what it asks for is what is asserted. */
+vi.mock("@/lib/health/useHealth", () => ({ useRouteHealth: vi.fn() }));
 
 /**
  * The map itself is replaced by a component that prints what it was handed.
@@ -154,6 +158,8 @@ beforeEach(() => {
   vi.mocked(fetchRouteStops).mockReset();
   vi.mocked(useAlerts).mockReset();
   vi.mocked(useAlerts).mockReturnValue({ status: "loading" });
+  vi.mocked(useRouteHealth).mockReset();
+  vi.mocked(useRouteHealth).mockReturnValue({ status: "loading" });
 });
 
 describe("MapExplorer", () => {
@@ -371,6 +377,75 @@ describe("MapExplorer live vehicles", () => {
 
     expect(await detailPanel().findByText("3 last known")).toBeInTheDocument();
     expect(detailPanel().queryByText(/tracked now/)).not.toBeInTheDocument();
+  });
+
+  describe("service health for the selected route", () => {
+    it("asks for nothing while no route is selected", () => {
+      render(<MapExplorer routes={ROUTES} />);
+
+      expect(vi.mocked(useRouteHealth)).toHaveBeenCalledWith(null);
+    });
+
+    it("asks for the selected route's health once one is chosen", async () => {
+      const user = userEvent.setup();
+      vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+      vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+      vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+      render(<MapExplorer routes={ROUTES} />);
+
+      await user.click(filters().getByText("Queen"));
+
+      await waitFor(() => expect(vi.mocked(useRouteHealth)).toHaveBeenLastCalledWith("501"));
+    });
+
+    it("shows the route's verdict in its panel", async () => {
+      const user = userEvent.setup();
+      vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+      vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+      vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+      vi.mocked(useRouteHealth).mockReturnValue({
+        status: "ready",
+        data: {
+          routeId: "501",
+          state: "UNSTABLE",
+          confidence: "MEDIUM",
+          reasons: ["HIGH_HEADWAY_VARIATION"],
+          directions: [
+            {
+              directionId: 0,
+              state: "UNSTABLE",
+              confidence: "MEDIUM",
+              reasons: ["HIGH_HEADWAY_VARIATION"],
+              metrics: {
+                vehicles: 5, gaps: 4, meanGapMetres: 3000, maxGapMetres: 4200, variation: 0.62, gapRatio: 1.4,
+                expectedGapMetres: 3000, expectedVehicles: 6, supplyRatio: 0.8, scheduledHeadwaySeconds: 600,
+                speedMetresPerSecond: 5, staleVehicles: 0, terminalVehicles: 0, basis: "SCHEDULE",
+              },
+            },
+          ],
+          unplacedVehicles: 0,
+          computedAt: "2026-10-12T14:00:02Z",
+        },
+        meta: {
+          generatedAt: "2026-10-12T14:00:30Z", feedTimestamp: "2026-10-12T14:00:00Z", ageSeconds: 30,
+          stale: false, degraded: false, source: "LIVE",
+        },
+        serverOffsetMs: 0,
+        refreshFailed: false,
+      });
+      render(<MapExplorer routes={ROUTES} />);
+
+      await user.click(filters().getByText("Queen"));
+
+      expect(await detailPanel().findByText(/Spacing varies by 62%/)).toBeInTheDocument();
+      expect(detailPanel().getByRole("heading", { name: "Service health" })).toBeInTheDocument();
+    });
+
+    it("shows no health section before a route is chosen", () => {
+      render(<MapExplorer routes={ROUTES} />);
+
+      expect(screen.queryByRole("heading", { name: "Service health" })).not.toBeInTheDocument();
+    });
   });
 
   describe("alerts for the selected route", () => {

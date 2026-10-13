@@ -30,13 +30,16 @@ the API yet, but the schedule half of it is queryable: routes, their geometry an
 stops, stop detail, proximity search and text search all return real TTC data.
 Each stored vehicle reading also carries where that vehicle is along its route and
 which way it is going, derived from its position (see
-[docs/route-progress.md](docs/route-progress.md)); that is stored, not yet served.
+[docs/route-progress.md](docs/route-progress.md)). From those placements each cycle
+judges how evenly every route's vehicles are spaced, against the timetable where the
+imported schedule covers the day, and serves a verdict with its reasons and the figures
+behind it (see [docs/route-health.md](docs/route-health.md)).
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
-sheet, skeleton, empty and error primitives. The home page shows the newest active
-service alerts and still calls nothing else, so its other regions state that nothing
-has been measured rather than showing placeholder figures. `/alerts` lists every alert
+sheet, skeleton, empty and error primitives. The home page reads the API: the
+network's counts and their age, how many routes are unevenly spaced and which, and the
+newest service alerts, each saying what it measured and how old it is. `/alerts` lists every alert
 with filters by mode and route, and `/map` does call the API: it draws any of the 236 routes on a
 MapLibre basemap from the agency's own schedule geometry, with the stops that
 route serves, filters by mode and name, and a list beside the map that offers
@@ -322,6 +325,24 @@ dropped rather than allowed to hold memory or delay the others. The protocol, th
 limits and the places it differs from the original plan are in
 [docs/streaming.md](docs/streaming.md); measurements with 25 simultaneous clients
 are in [docs/performance.md](docs/performance.md).
+
+### Route health
+
+Each vehicle cycle measures how evenly every route's vehicles are spaced along it, per
+direction, and compares that with the timetable's spacing for the hour. The result is one
+of `EXCELLENT`, `NORMAL`, `UNSTABLE`, `MAJOR_DISRUPTION` or `UNKNOWN`, with a confidence,
+reason codes and the figures behind it. It measures spacing, not delay: the TTC publishes
+no delay, so nothing here means late or on time.
+
+```bash
+curl "http://localhost:8080/api/v1/routes/501/health"
+curl "http://localhost:8080/api/v1/health/routes?state=UNSTABLE&state=MAJOR_DISRUPTION"
+```
+
+`UNKNOWN` is a stated answer with a reason (too few vehicles, or no positions published, as
+on the subway), never a blank. The thresholds are documented starting judgements, not a
+calibration, and say so in [docs/route-health.md](docs/route-health.md), which also records
+what the first run against the live feed got wrong and how it was corrected.
 
 ### Service alerts
 

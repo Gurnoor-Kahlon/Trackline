@@ -1,5 +1,6 @@
 package ca.trackline.api.persistence.query;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -70,6 +71,21 @@ public class RouteQueryRepository {
                 .query("SELECT %s FROM routes WHERE route_id = ?".formatted(SUMMARY_COLUMNS), summaryMapper(), routeId)
                 .stream()
                 .findFirst();
+    }
+
+    /** The routes with these ids, in the order the rest of the API lists routes. Unknown ids are absent. */
+    public List<RouteSummary> findRoutesByIds(Collection<String> routeIds) {
+        if (routeIds.isEmpty()) {
+            return List.of();
+        }
+        String placeholders = String.join(", ", routeIds.stream().map(id -> "?").toList());
+        return jdbc.query(
+                """
+                SELECT %s FROM routes WHERE route_id IN (%s)
+                %s
+                """.formatted(SUMMARY_COLUMNS, placeholders, ROUTE_ORDER),
+                summaryMapper(),
+                routeIds.toArray());
     }
 
     /**

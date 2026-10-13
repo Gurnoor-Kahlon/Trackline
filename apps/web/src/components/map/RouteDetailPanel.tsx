@@ -1,14 +1,16 @@
 "use client";
 
 import { RouteAlerts } from "@/components/alerts/RouteAlerts";
+import { RouteHealthSection } from "@/components/health/RouteHealthSection";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { RouteBadge } from "@/components/ui/RouteBadge";
 import { SkeletonLines } from "@/components/ui/Skeleton";
 import type { AlertsResult } from "@/lib/alerts/useAlerts";
-import type { RouteDetail, RouteStop } from "@/lib/api/types";
+import type { RouteDetail, RouteHealth, RouteStop } from "@/lib/api/types";
 import { cn } from "@/lib/cn";
+import type { PolledResult } from "@/lib/polling/usePolledEnvelope";
 
 type RouteDetailPanelProps = {
   route: RouteDetail | null;
@@ -29,6 +31,8 @@ type RouteDetailPanelProps = {
   liveVehiclesCurrent?: boolean | undefined;
   /** Alerts naming this route. Omitted where the page has none to give. */
   alerts?: AlertsResult | undefined;
+  /** The route's health. Omitted where the page has none to give. */
+  health?: PolledResult<RouteHealth> | undefined;
 };
 
 /** GTFS wheelchair_boarding, stated exactly as published and never inferred. */
@@ -57,6 +61,7 @@ export function RouteDetailPanel({
   liveVehicles = null,
   liveVehiclesCurrent = true,
   alerts,
+  health,
 }: RouteDetailPanelProps) {
   if (error !== null) {
     return <ErrorState title="Could not load this route" description={error} />;
@@ -126,6 +131,13 @@ export function RouteDetailPanel({
           {route.supportsRealtime ? describeLiveVehicles(liveVehicles, liveVehiclesCurrent) : "Not published"}
         </dd>
       </dl>
+
+      {health === undefined ? null : (
+        <RouteHealthSection
+          result={health}
+          headsign={(id) => route.directions.find((candidate) => candidate.directionId === id)?.headsign ?? null}
+        />
+      )}
 
       {alerts === undefined ? null : <RouteAlerts result={alerts} />}
 

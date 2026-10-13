@@ -162,3 +162,94 @@ export type ServiceAlert = {
   routes: AlertRoute[];
   stops: AlertStop[];
 };
+
+/** The verdict on a route. UNKNOWN is a statement that there is none, with a reason, not an error. */
+export type HealthState = "EXCELLENT" | "NORMAL" | "UNSTABLE" | "MAJOR_DISRUPTION" | "UNKNOWN";
+
+export type HealthConfidence = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+
+/** Why a verdict is what it is, or why there is none. The wording is composed from these. */
+export type HealthReason =
+  | "HIGH_HEADWAY_VARIATION"
+  | "LARGE_GAP"
+  | "FEWER_VEHICLES_THAN_SCHEDULED"
+  | "FEW_VEHICLES"
+  | "STALE_VEHICLES"
+  | "NO_SCHEDULE_COVERAGE"
+  | "NO_SCHEDULED_HEADWAY"
+  | "SPEED_UNKNOWN"
+  | "INSUFFICIENT_VEHICLES"
+  | "NO_REALTIME_FEED"
+  | "NOT_ANALYSED_YET";
+
+/** What the expected spacing was taken from. */
+export type SpacingBasis = "SCHEDULE" | "OBSERVED";
+
+/**
+ * The figures a verdict was reached from. Null where a figure could not be computed, never
+ * zero. Distances are in metres.
+ */
+export type HealthMetrics = {
+  vehicles: number;
+  gaps: number;
+  meanGapMetres: number | null;
+  maxGapMetres: number | null;
+  /** Standard deviation of the gaps over their mean: 0.62 is "varies by 62 %". */
+  variation: number | null;
+  /** The largest gap over the expected spacing. */
+  gapRatio: number | null;
+  expectedGapMetres: number | null;
+  expectedVehicles: number | null;
+  supplyRatio: number | null;
+  scheduledHeadwaySeconds: number | null;
+  speedMetresPerSecond: number | null;
+  staleVehicles: number;
+  terminalVehicles: number;
+  basis: SpacingBasis;
+};
+
+export type DirectionHealth = {
+  directionId: number;
+  state: HealthState;
+  confidence: HealthConfidence;
+  reasons: HealthReason[];
+  metrics: HealthMetrics;
+};
+
+export type RouteHealth = {
+  routeId: string;
+  state: HealthState;
+  confidence: HealthConfidence;
+  reasons: HealthReason[];
+  directions: DirectionHealth[];
+  unplacedVehicles: number;
+  computedAt: string | null;
+};
+
+export type RouteHealthSummary = {
+  routeId: string;
+  shortName: string;
+  longName: string;
+  mode: TransitMode;
+  colour: string | null;
+  textColour: string | null;
+  state: HealthState;
+  confidence: HealthConfidence;
+  reasons: HealthReason[];
+  vehicles: number;
+};
+
+export type RouteHealthList = {
+  routes: RouteHealthSummary[];
+  computedAt: string | null;
+};
+
+/**
+ * What is happening across the network right now. `activeAlerts` is null until alerts have
+ * been ingested once: null is not zero.
+ */
+export type NetworkStatus = {
+  vehiclesTracked: number;
+  routesReporting: number;
+  activeAlerts: number | null;
+};
