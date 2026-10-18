@@ -9,7 +9,7 @@ import { RouteFilterPanel } from "@/components/map/RouteFilterPanel";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { useAlerts } from "@/lib/alerts/useAlerts";
-import { useRouteHealth } from "@/lib/health/useHealth";
+import { useRouteBunching, useRouteHealth } from "@/lib/health/useHealth";
 import { ApiError } from "@/lib/api/client";
 import { fetchRoute, fetchRouteShape, fetchRouteStops } from "@/lib/api/routes";
 import type { RouteDetail, RouteShape, RouteStop, RouteSummary } from "@/lib/api/types";
@@ -90,6 +90,7 @@ export function MapExplorer({ routes }: MapExplorerProps) {
   const routeColours = useMemo(() => colourByRoute(routes), [routes]);
   // The health of the selected route. Nothing is fetched while none is selected.
   const routeHealth = useRouteHealth(selectedRouteId);
+  const routeBunching = useRouteBunching(selectedRouteId);
   // The alerts that name the selected route. Nothing is fetched while none is selected.
   const routeAlerts = useAlerts(
     selectedRouteId === null
@@ -242,6 +243,7 @@ export function MapExplorer({ routes }: MapExplorerProps) {
       liveVehiclesCurrent={liveConnected}
       alerts={selectedRouteId === null ? undefined : routeAlerts}
       health={selectedRouteId === null ? undefined : routeHealth}
+      bunching={selectedRouteId === null ? undefined : routeBunching}
     />
   );
 

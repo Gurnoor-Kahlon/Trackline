@@ -71,6 +71,9 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
     private RouteHealthStore store;
 
     @Autowired
+    private ca.trackline.api.analytics.bunching.BunchingEventService bunchingEvents;
+
+    @Autowired
     private StringRedisTemplate redis;
 
     @Autowired
@@ -121,7 +124,11 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
         feedServer.resetAll();
         clear(jdbc);
         jdbc.execute("TRUNCATE service_alerts CASCADE");
+        jdbc.execute("TRUNCATE bunching_events");
+        // Packs waiting to be confirmed are held in memory across tests, so one test's would count towards the next.
+        bunchingEvents.forgetPending();
         redis.delete(RouteHealthStore.KEY);
+        redis.delete(RouteHealthStore.SPACING_KEY);
         store.forget();
     }
 
@@ -129,7 +136,9 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
     void tearDown() {
         Mockito.reset(healthService);
         clear(jdbc);
+        jdbc.execute("TRUNCATE bunching_events");
         redis.delete(RouteHealthStore.KEY);
+        redis.delete(RouteHealthStore.SPACING_KEY);
         store.forget();
     }
 
@@ -358,7 +367,7 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
             placed.put(id, new RouteProgress(
                     id, ProjectionStatus.ASSIGNED_BY_BEARING, (short) 0, progress[index], progress[index] / 8_000, 3.0, null));
         }
-        return healthService.analyse(vehicles, new RouteProgressSnapshot(placed), now);
+        return healthService.analyse(vehicles, new RouteProgressSnapshot(placed), now).health();
     }
 
     private static DirectionHealth east(HealthSnapshot snapshot) {
@@ -454,5 +463,181 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
 
         assertThat(east(snapshot).metrics().vehicles()).isEqualTo(4);
         assertThat(east(snapshot).metrics().maxGapMetres()).isEqualTo(1500.0);
+    }
+
+    // --- bunching, end to end ---------------------------------------------------------------------------------
+
+    /** Metres per degree of longitude along the straight test route's parallel, close enough to place vehicles. */
+    private static final double METRES_PER_DEGREE = 80_550.0;
+
+    private record Placement(String id, String route, double progressMetres) {
+    }
+
+    /**
+     * A complete vehicle feed with each vehicle placed this far along the straight east-west route,
+     * heading east so that its direction is read from its heading. A placement with no route is a
+     * vehicle running without an assignment.
+     */
+    private byte[] syntheticFleet(List<Placement> placements) {
+        long shift = shiftSeconds;
+        shiftSeconds += 1_000;
+        Instant at = recordedAt().plusSeconds(shift);
+        Mockito.when(clock.instant()).thenReturn(at);
+
+        var message = com.google.transit.realtime.GtfsRealtime.FeedMessage.newBuilder()
+                .setHeader(com.google.transit.realtime.GtfsRealtime.FeedHeader.newBuilder()
+                        .setGtfsRealtimeVersion("2.0")
+                        .setIncrementality(com.google.transit.realtime.GtfsRealtime.FeedHeader.Incrementality.FULL_DATASET)
+                        .setTimestamp(at.getEpochSecond()));
+        for (Placement placement : placements) {
+            var vehicle = com.google.transit.realtime.GtfsRealtime.VehiclePosition.newBuilder()
+                    .setVehicle(com.google.transit.realtime.GtfsRealtime.VehicleDescriptor.newBuilder().setId(placement.id()))
+                    .setPosition(com.google.transit.realtime.GtfsRealtime.Position.newBuilder()
+                            .setLatitude(43.65f)
+                            .setLongitude((float) (-79.40 + placement.progressMetres() / METRES_PER_DEGREE))
+                            .setBearing(90f))
+                    .setTimestamp(at.getEpochSecond() - 10);
+            if (placement.route() != null) {
+                vehicle.setTrip(com.google.transit.realtime.GtfsRealtime.TripDescriptor.newBuilder()
+                        .setTripId("trip-" + placement.id())
+                        .setRouteId(placement.route()));
+            }
+            message.addEntity(com.google.transit.realtime.GtfsRealtime.FeedEntity.newBuilder()
+                    .setId(placement.id())
+                    .setVehicle(vehicle));
+        }
+        return message.build().toByteArray();
+    }
+
+    /** Ten vehicles in all: the four under test and six running with no route, so a later cycle can shrink sharply. */
+    private List<Placement> fleet(double... progress) {
+        List<Placement> placements = new ArrayList<>();
+        for (int index = 0; index < progress.length; index++) {
+            placements.add(new Placement("ew-" + index, ROUTE, progress[index]));
+        }
+        for (int index = 0; index < 6; index++) {
+            placements.add(new Placement("spare-" + index, null, 0));
+        }
+        return placements;
+    }
+
+    private static final double[] BUNCHED = {1000, 1300, 5200, 7200};
+    private static final double[] EVEN = {1000, 3000, 5000, 7000};
+
+    private int eventCount(String where) {
+        return jdbc.queryForObject("SELECT count(*) FROM bunching_events WHERE " + where, Integer.class);
+    }
+
+    private void cycle(double[] progress) {
+        serve(syntheticFleet(fleet(progress)));
+        IngestionCycleResult result = cycleService.runCycle(RealtimeFeed.VEHICLE_POSITIONS);
+        assertThat(result.status()).isEqualTo(IngestionRunStatus.SUCCESS);
+    }
+
+    @Test
+    void aBunchOnTheRoadIsFoundPublishedAndRecordedAsOneOpenEventOnceItHasPersisted() {
+        straightRoute();
+
+        // Found and published at once, but recorded only after three analyses in a row.
+        cycle(BUNCHED);
+        assertThat(store.readSpacing().snapshot().bunches()).hasSize(1);
+        assertThat(eventCount("true")).isZero();
+        cycle(BUNCHED);
+        cycle(BUNCHED);
+
+        var strip = store.readSpacing().snapshot().routes().stream()
+                .filter(route -> route.routeId().equals(ROUTE)).findFirst().orElseThrow().directions().getFirst();
+        assertThat(strip.bunches()).singleElement()
+                .satisfies(bunch -> assertThat(bunch.vehicleIds()).containsExactly("ew-0", "ew-1"));
+        assertThat(eventCount("resolved_at IS NULL AND route_id = 'ew'")).isEqualTo(1);
+        // And the verdict says so, in the figures and in the reasons.
+        DirectionHealth health = east(published());
+        assertThat(health.metrics().bunchingClusters()).isEqualTo(1);
+        assertThat(health.reasons()).contains(ReasonCode.BUNCHING);
+    }
+
+    @Test
+    void aBunchThatLastsThroughSeveralCyclesIsOneEventNotOnePerCycle() {
+        straightRoute();
+
+        cycle(BUNCHED);
+        cycle(BUNCHED);
+        cycle(BUNCHED);
+
+        assertThat(eventCount("route_id = 'ew'")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT sightings FROM bunching_events", Integer.class)).isEqualTo(3);
+    }
+
+    @Test
+    void aBunchThatBreaksUpIsResolvedAfterTwoCyclesWithoutIt() {
+        straightRoute();
+        cycle(BUNCHED);
+        cycle(BUNCHED);
+        cycle(BUNCHED);
+
+        cycle(EVEN);
+        assertThat(eventCount("resolved_at IS NULL")).as("one miss is not enough").isEqualTo(1);
+
+        cycle(EVEN);
+        assertThat(eventCount("resolved_at IS NULL")).isZero();
+        assertThat(eventCount("resolved_at IS NOT NULL")).isEqualTo(1);
+    }
+
+    @Test
+    void evenlySpacedVehiclesNeverMakeAnEvent() {
+        straightRoute();
+
+        cycle(EVEN);
+        cycle(EVEN);
+
+        assertThat(eventCount("true")).isZero();
+        assertThat(store.readSpacing().snapshot().bunches()).isEmpty();
+    }
+
+    @Test
+    void aSuspectCycleLeavesStoredBunchesAloneInsteadOfResolvingThemOnAShrunkenFleet() {
+        straightRoute();
+        cycle(BUNCHED);
+        cycle(BUNCHED);
+        cycle(BUNCHED);
+
+        // One vehicle where there were ten: under a fifth of the last count, so the cycle is recorded as
+        // suspect. Applied, it would resolve the bunch on the strength of a feed that has probably broken.
+        serve(syntheticFleet(List.of(new Placement("spare-0", null, 0))));
+        IngestionCycleResult suspect = cycleService.runCycle(RealtimeFeed.VEHICLE_POSITIONS);
+
+        assertThat(suspect.status()).isEqualTo(IngestionRunStatus.SUSPECT);
+        assertThat(eventCount("resolved_at IS NULL")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT missed_cycles FROM bunching_events", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT sightings FROM bunching_events", Integer.class)).isEqualTo(3);
+    }
+
+    @Test
+    void aPackSeenOnlyOnceOrTwiceIsNeverRecordedAsAnEvent() {
+        straightRoute();
+
+        cycle(BUNCHED);
+        cycle(BUNCHED);
+        cycle(EVEN);
+
+        assertThat(eventCount("true")).isZero();
+    }
+
+    @Test
+    void aFailureRecordingEventsCostsTheEventsAndNothingElse() {
+        straightRoute();
+        jdbc.execute("ALTER TABLE bunching_events RENAME TO bunching_events_away");
+        try {
+            serve(syntheticFleet(fleet(BUNCHED)));
+
+            IngestionCycleResult result = cycleService.runCycle(RealtimeFeed.VEHICLE_POSITIONS);
+
+            // The readings and the verdicts are already stored and published; only the events failed.
+            assertThat(result.status()).isEqualTo(IngestionRunStatus.SUCCESS);
+            assertThat(result.stored()).isPositive();
+            assertThat(store.read().snapshot()).isNotNull();
+        } finally {
+            jdbc.execute("ALTER TABLE bunching_events_away RENAME TO bunching_events");
+        }
     }
 }

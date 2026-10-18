@@ -32,14 +32,16 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
      * {@code vehicle_observations} is a partitioned append-only log that analytics
      * query directly. The two alert tables are written by set-based SQL that
      * reconciles a whole payload against what is stored and read by joined queries
-     * into response shapes, so an entity over either would be unused code.
+     * into response shapes, so an entity over either would be unused code. The same is true of
+     * {@code bunching_events}, opened, continued and resolved by one reconciling statement per analysis.
      *
      * <p>Partitions of vehicle_observations are excluded by prefix rather than by
      * name, since they are created per day at runtime.
      */
     private static final Set<String> TABLES_WITHOUT_ENTITIES = Set.of(
             "spatial_ref_sys", "flyway_schema_history", "shape_points",
-            "route_scheduled_headways", "vehicle_observations", "service_alerts", "service_alert_entities");
+            "route_scheduled_headways", "vehicle_observations", "service_alerts", "service_alert_entities",
+            "bunching_events");
 
     @Autowired
     private EntityManager entityManager;

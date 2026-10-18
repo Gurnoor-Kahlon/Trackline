@@ -36,7 +36,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "5 scheduled headways",
                 "6 vehicle observations",
                 "7 observation route progress",
-                "8 service alerts");
+                "8 service alerts",
+                "9 bunching events");
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
@@ -108,6 +109,7 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 String.class);
 
         assertThat(tables).containsExactly(
+                "bunching_events",
                 "calendar_exceptions",
                 "calendar_services",
                 "gtfs_feed_versions",

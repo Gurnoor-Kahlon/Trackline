@@ -25,6 +25,7 @@ export function metrics(overrides: Partial<HealthMetrics> = {}): HealthMetrics {
     staleVehicles: 0,
     terminalVehicles: 0,
     basis: "SCHEDULE",
+    bunchingClusters: 0,
     ...overrides,
   };
 }

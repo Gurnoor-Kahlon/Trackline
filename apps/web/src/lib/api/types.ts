@@ -173,6 +173,7 @@ export type HealthReason =
   | "HIGH_HEADWAY_VARIATION"
   | "LARGE_GAP"
   | "FEWER_VEHICLES_THAN_SCHEDULED"
+  | "BUNCHING"
   | "FEW_VEHICLES"
   | "STALE_VEHICLES"
   | "NO_SCHEDULE_COVERAGE"
@@ -206,6 +207,8 @@ export type HealthMetrics = {
   staleVehicles: number;
   terminalVehicles: number;
   basis: SpacingBasis;
+  /** Packs of vehicles found while a large gap opens elsewhere on the direction. */
+  bunchingClusters: number;
 };
 
 export type DirectionHealth = {
@@ -252,4 +255,65 @@ export type NetworkStatus = {
   vehiclesTracked: number;
   routesReporting: number;
   activeAlerts: number | null;
+};
+
+/** What a placed vehicle is doing as far as spacing is concerned. */
+export type VehicleRole = "SPACED" | "BUNCHED" | "AT_TERMINAL" | "STALE";
+
+export type SpacingVehicle = {
+  vehicleId: string;
+  /** Metres along the direction's route. */
+  progressMetres: number;
+  role: VehicleRole;
+};
+
+export type BunchSeverity = "MODERATE" | "SEVERE";
+
+/** Vehicles running together while a large gap opens elsewhere on the same direction. */
+export type Bunch = {
+  vehicleIds: string[];
+  spanMetres: number;
+  /** The largest gap elsewhere on the direction. */
+  serviceGapMetres: number;
+  severity: BunchSeverity;
+};
+
+export type DirectionSpacing = {
+  directionId: number;
+  lengthMetres: number;
+  loop: boolean;
+  /** What spacing was measured against, or null with too few vehicles to say. */
+  expectedGapMetres: number | null;
+  basis: SpacingBasis;
+  vehicles: SpacingVehicle[];
+  bunches: Bunch[];
+};
+
+/**
+ * One bunch over its life. Every time is one Trackline observed, so each bounds the moment it
+ * describes: the pack formed at or before `firstSeenAt` and broke up at or before `resolvedAt`.
+ */
+export type BunchingEvent = {
+  id: number;
+  directionId: number;
+  status: "ACTIVE" | "RESOLVED";
+  vehicleIds: string[];
+  peakVehicles: number;
+  spanMetres: number;
+  expectedGapMetres: number;
+  serviceGapMetres: number;
+  basis: SpacingBasis;
+  severity: BunchSeverity;
+  peakSeverity: BunchSeverity;
+  sightings: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
+};
+
+export type RouteBunching = {
+  routeId: string;
+  directions: DirectionSpacing[];
+  events: BunchingEvent[];
+  computedAt: string | null;
 };

@@ -3,6 +3,7 @@ package ca.trackline.api.analytics.health;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 
+import ca.trackline.api.analytics.bunching.BunchingModels.SpacingSnapshot;
 import ca.trackline.api.analytics.health.RouteHealthModels.HealthSnapshot;
 import ca.trackline.api.common.envelope.DataSource;
 import ca.trackline.api.livestate.LiveStateProperties;
@@ -32,11 +33,13 @@ public class RouteHealthStore {
     private static final Logger log = LoggerFactory.getLogger(RouteHealthStore.class);
 
     static final String KEY = "trackline:routehealth:snapshot";
+    static final String SPACING_KEY = "trackline:routehealth:spacing";
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final Duration ttl;
     private final AtomicReference<HealthSnapshot> local = new AtomicReference<>();
+    private final AtomicReference<SpacingSnapshot> localSpacing = new AtomicReference<>();
 
     public RouteHealthStore(
             StringRedisTemplate redis,
@@ -70,6 +73,45 @@ public class RouteHealthStore {
         }
     }
 
+    /** The answer to a read of the spacing behind the verdicts, by the same tiers. */
+    public record SpacingRead(SpacingSnapshot snapshot, DataSource source, boolean degraded) {
+
+        public static SpacingRead nothing() {
+            return new SpacingRead(null, DataSource.NO_DATA, false);
+        }
+    }
+
+    /**
+     * Keeps the positions and bunches behind this cycle's verdicts, in its own document: the
+     * verdict list is read far more often than the strip, and should not carry every vehicle.
+     */
+    public void publishSpacing(SpacingSnapshot snapshot) {
+        localSpacing.set(snapshot);
+        try {
+            redis.opsForValue().set(SPACING_KEY, objectMapper.writeValueAsString(snapshot), ttl);
+        } catch (JsonProcessingException cause) {
+            log.error("Could not serialise the route spacing snapshot", cause);
+        } catch (RuntimeException failure) {
+            log.warn("Could not write route spacing to Redis: {}", failure.toString());
+        }
+    }
+
+    public SpacingRead readSpacing() {
+        try {
+            String document = redis.opsForValue().get(SPACING_KEY);
+            if (document != null) {
+                return new SpacingRead(objectMapper.readValue(document, SpacingSnapshot.class), DataSource.LIVE, false);
+            }
+        } catch (JsonProcessingException cause) {
+            log.error("Route spacing in Redis could not be read back", cause);
+        } catch (RuntimeException failure) {
+            log.warn("Could not read route spacing from Redis: {}", failure.toString());
+        }
+
+        SpacingSnapshot held = localSpacing.get();
+        return held == null ? SpacingRead.nothing() : new SpacingRead(held, DataSource.CACHED, true);
+    }
+
     public HealthRead read() {
         try {
             String document = redis.opsForValue().get(KEY);
@@ -91,5 +133,6 @@ public class RouteHealthStore {
     /** Forgets this process's own copy. For tests that need an instance with no memory. */
     void forget() {
         local.set(null);
+        localSpacing.set(null);
     }
 }

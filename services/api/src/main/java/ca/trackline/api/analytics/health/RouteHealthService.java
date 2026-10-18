@@ -6,18 +6,30 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import ca.trackline.api.analytics.bunching.BunchingDetector;
+import ca.trackline.api.analytics.bunching.BunchingModels.BunchingCandidate;
+import ca.trackline.api.analytics.bunching.BunchingModels.DirectionSpacing;
+import ca.trackline.api.analytics.bunching.BunchingModels.PlacedVehicle;
+import ca.trackline.api.analytics.bunching.BunchingModels.RouteSpacing;
+import ca.trackline.api.analytics.bunching.BunchingModels.SpacedVehicle;
+import ca.trackline.api.analytics.bunching.BunchingModels.SpacingSnapshot;
+import ca.trackline.api.analytics.bunching.BunchingModels.VehicleRole;
+import ca.trackline.api.analytics.bunching.BunchingProperties;
 import ca.trackline.api.analytics.health.RouteHealthModels.DirectionHealth;
 import ca.trackline.api.analytics.health.RouteHealthModels.DirectionInputs;
 import ca.trackline.api.analytics.health.RouteHealthModels.HealthSnapshot;
 import ca.trackline.api.analytics.health.RouteHealthModels.RouteHealth;
 import ca.trackline.api.analytics.progress.RouteProgress;
 import ca.trackline.api.analytics.progress.RouteProgressSnapshot;
+import ca.trackline.api.analytics.spacing.HeadwaySeries;
+import ca.trackline.api.analytics.spacing.SpacingYardstick;
 import ca.trackline.api.gtfs.realtime.VehicleSnapshot;
 import ca.trackline.api.gtfs.schedule.ScheduleCoverageService;
 import ca.trackline.api.gtfs.schedule.ScheduleCoverageService.ScheduleCoverage;
@@ -52,6 +64,7 @@ public class RouteHealthService {
     private final HealthProperties thresholds;
     private final RouteHealthCalculator calculator;
     private final RouteSpeedEstimator speeds;
+    private final BunchingDetector bunching;
     private final RouteHealthStore store;
     private final HealthAnalysisMetrics metrics;
     private final Clock clock;
@@ -60,6 +73,7 @@ public class RouteHealthService {
             HealthReferenceRepository reference,
             ScheduleCoverageService coverage,
             HealthProperties thresholds,
+            BunchingProperties bunchingThresholds,
             RouteHealthStore store,
             HealthAnalysisMetrics metrics,
             Clock clock) {
@@ -68,18 +82,25 @@ public class RouteHealthService {
         this.thresholds = thresholds;
         this.calculator = new RouteHealthCalculator(thresholds);
         this.speeds = new RouteSpeedEstimator(thresholds);
+        this.bunching = new BunchingDetector(bunchingThresholds);
         this.store = store;
         this.metrics = metrics;
         this.clock = clock;
     }
 
     /**
-     * Analyses a cycle and publishes the verdicts.
+     * What one analysis produced: the verdicts, and the positions and bunches behind them.
+     */
+    public record AnalysisResult(HealthSnapshot health, SpacingSnapshot spacing) {
+    }
+
+    /**
+     * Analyses a cycle and publishes the verdicts and the spacing behind them.
      *
      * @param progress where each vehicle is along its route; an empty snapshot, which is what
-     *                 a failed projection leaves, yields no verdicts and is not published
+     *                 a failed projection leaves, yields nothing and publishes nothing
      */
-    public HealthSnapshot analyse(List<VehicleSnapshot> vehicles, RouteProgressSnapshot progress, Instant feedTimestamp) {
+    public AnalysisResult analyse(List<VehicleSnapshot> vehicles, RouteProgressSnapshot progress, Instant feedTimestamp) {
         return metrics.time(() -> {
             Instant now = Instant.now(clock);
             ZonedDateTime local = now.atZone(TORONTO);
@@ -90,18 +111,19 @@ public class RouteHealthService {
                     ? reference.scheduledHeadwaySeconds(dayTypeOf(local.getDayOfWeek()), local.getHour())
                     : Map.of();
 
-            HealthSnapshot snapshot =
+            AnalysisResult result =
                     compute(vehicles, progress, feedTimestamp, now, shapes, headways, schedule.covered());
             if (progress.size() > 0) {
-                store.publish(snapshot);
-                metrics.record(snapshot);
+                store.publish(result.health());
+                store.publishSpacing(result.spacing());
+                metrics.record(result.health());
             }
-            return snapshot;
+            return result;
         });
     }
 
     /** The analysis itself, with every outside fact passed in. */
-    HealthSnapshot compute(
+    AnalysisResult compute(
             List<VehicleSnapshot> vehicles,
             RouteProgressSnapshot progress,
             Instant feedTimestamp,
@@ -130,7 +152,7 @@ public class RouteHealthService {
             boolean stale = vehicle.sourceTimestamp().isBefore(staleBefore);
             route.byDirection
                     .computeIfAbsent(placed.directionId(), id -> new ArrayList<>())
-                    .add(new Placed(placed.progressMetres(), stale));
+                    .add(new Placed(vehicle.vehicleId(), placed.progressMetres(), stale));
             if (!stale) {
                 speeds.observe(
                         vehicle.vehicleId(), vehicle.routeId(), placed.directionId(), placed.progressMetres(),
@@ -140,9 +162,11 @@ public class RouteHealthService {
         speeds.prune(feedTimestamp);
 
         List<RouteHealth> routes = new ArrayList<>();
+        List<RouteSpacing> spacing = new ArrayList<>();
         for (Map.Entry<String, RouteTally> entry : byRoute.entrySet()) {
             String routeId = entry.getKey();
             List<DirectionHealth> directions = new ArrayList<>();
+            List<DirectionSpacing> strips = new ArrayList<>();
             for (Map.Entry<Short, List<Placed>> direction : new TreeMap<>(entry.getValue().byDirection).entrySet()) {
                 DirectionKey key = new DirectionKey(routeId, direction.getKey());
                 ShapeInfo shape = shapes.get(key);
@@ -151,14 +175,23 @@ public class RouteHealthService {
                     // skipped rather than invented should the schedule change under a cycle.
                     continue;
                 }
-                directions.add(calculator.evaluate(inputs(key, direction.getValue(), shape, headways, scheduleCovered)));
+                Assembled assembled = assemble(key, direction.getValue(), shape, headways, scheduleCovered);
+                directions.add(calculator.evaluate(assembled.inputs()));
+                strips.add(assembled.spacing());
             }
             routes.add(calculator.combine(routeId, directions, entry.getValue().unplaced));
+            spacing.add(new RouteSpacing(routeId, strips));
         }
-        return new HealthSnapshot(feedTimestamp, computedAt, scheduleCovered, routes);
+        return new AnalysisResult(
+                new HealthSnapshot(feedTimestamp, computedAt, scheduleCovered, routes),
+                new SpacingSnapshot(feedTimestamp, computedAt, spacing));
     }
 
-    private DirectionInputs inputs(
+    /** One direction's inputs to the judgement and its positions for the strip, from one sorting of its vehicles. */
+    private record Assembled(DirectionInputs inputs, DirectionSpacing spacing) {
+    }
+
+    private Assembled assemble(
             DirectionKey key,
             List<Placed> placed,
             ShapeInfo shape,
@@ -167,25 +200,49 @@ public class RouteHealthService {
 
         int stale = 0;
         int terminal = 0;
-        List<Double> usable = new ArrayList<>();
         int fresh = 0;
+        List<SpacedVehicle> usable = new ArrayList<>();
+        Map<String, VehicleRole> roles = new HashMap<>();
         for (Placed vehicle : placed) {
             if (vehicle.stale()) {
                 stale++;
+                roles.put(vehicle.vehicleId(), VehicleRole.STALE);
                 continue;
             }
             fresh++;
             if (atTerminal(vehicle.progressMetres(), shape)) {
                 terminal++;
+                roles.put(vehicle.vehicleId(), VehicleRole.AT_TERMINAL);
             } else {
-                usable.add(vehicle.progressMetres());
+                usable.add(new SpacedVehicle(vehicle.vehicleId(), vehicle.progressMetres()));
+                roles.put(vehicle.vehicleId(), VehicleRole.SPACED);
             }
         }
 
-        return new DirectionInputs(
+        List<Double> gaps = HeadwaySeries.gaps(
+                usable.stream().map(SpacedVehicle::progressMetres).toList(), shape.lengthMetres(), shape.loop());
+        Double headway = headways.get(key);
+        Double speed = speeds.speedMetresPerSecond(key.routeId(), key.directionId()).orElse(null);
+
+        // The same yardstick the verdict uses, so bunching and health cannot disagree about a gap.
+        SpacingYardstick yardstick = SpacingYardstick.of(scheduleCovered, headway, speed);
+        Double expectedGap = gaps.isEmpty() ? null : yardstick.metres(gaps);
+        List<BunchingCandidate> bunches = expectedGap == null
+                ? List.of()
+                : bunching.detect(
+                        key.routeId(), key.directionId(), usable, shape.lengthMetres(), shape.loop(), expectedGap,
+                        yardstick.basis());
+        bunches.forEach(bunch -> bunch.vehicleIds().forEach(id -> roles.put(id, VehicleRole.BUNCHED)));
+
+        List<PlacedVehicle> strip = placed.stream()
+                .sorted(Comparator.comparingDouble(Placed::progressMetres).thenComparing(Placed::vehicleId))
+                .map(vehicle -> new PlacedVehicle(vehicle.vehicleId(), vehicle.progressMetres(), roles.get(vehicle.vehicleId())))
+                .toList();
+
+        DirectionInputs inputs = new DirectionInputs(
                 key.routeId(),
                 key.directionId(),
-                HeadwaySeries.gaps(usable, shape.lengthMetres(), shape.loop()),
+                gaps,
                 usable.size(),
                 fresh,
                 stale,
@@ -193,8 +250,12 @@ public class RouteHealthService {
                 shape.lengthMetres(),
                 shape.loop(),
                 scheduleCovered,
-                headways.get(key),
-                speeds.speedMetresPerSecond(key.routeId(), key.directionId()).orElse(null));
+                headway,
+                speed,
+                bunches.size());
+        DirectionSpacing spacing = new DirectionSpacing(
+                key.directionId(), shape.lengthMetres(), shape.loop(), expectedGap, yardstick.basis(), strip, bunches);
+        return new Assembled(inputs, spacing);
     }
 
     /**
@@ -237,7 +298,7 @@ public class RouteHealthService {
         };
     }
 
-    private record Placed(double progressMetres, boolean stale) {
+    private record Placed(String vehicleId, double progressMetres, boolean stale) {
     }
 
     private static final class RouteTally {

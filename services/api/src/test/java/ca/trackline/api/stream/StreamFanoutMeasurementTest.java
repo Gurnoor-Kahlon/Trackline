@@ -38,7 +38,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * model of a network.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = "trackline.stream.max-subscribers-per-client=50")
+// The heartbeat is broadcast on a timer shared by every client, so on a slow machine one can land between a
+// cycle and its delivery and be read as a missing event. It has its own test; this one is about delivery.
+@TestPropertySource(properties = {
+        "trackline.stream.max-subscribers-per-client=50",
+        "trackline.stream.heartbeat-interval=1h"})
 class StreamFanoutMeasurementTest extends PostgisIntegrationTest {
 
     private static final Logger log = LoggerFactory.getLogger(StreamFanoutMeasurementTest.class);

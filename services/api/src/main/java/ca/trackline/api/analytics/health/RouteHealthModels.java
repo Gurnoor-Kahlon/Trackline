@@ -3,6 +3,8 @@ package ca.trackline.api.analytics.health;
 import java.time.Instant;
 import java.util.List;
 
+import ca.trackline.api.analytics.spacing.SpacingBasis;
+
 /**
  * The value types of the route-health algorithm: what goes into the calculator and what
  * comes out of it. Plain records with no behaviour, shared by the pure calculator, the
@@ -30,6 +32,8 @@ public final class RouteHealthModels {
      * @param scheduleCovered    whether the imported timetable describes today
      * @param scheduledHeadwaySeconds the timetable's median spacing for this hour, or null
      * @param speedMetresPerSecond the route's measured speed along its shape, or null
+     * @param bunchingClusters   packs of vehicles found on this direction while a large gap
+     *                           opens elsewhere on it
      */
     public record DirectionInputs(
             String routeId,
@@ -43,21 +47,31 @@ public final class RouteHealthModels {
             boolean loop,
             boolean scheduleCovered,
             Double scheduledHeadwaySeconds,
-            Double speedMetresPerSecond) {
+            Double speedMetresPerSecond,
+            int bunchingClusters) {
 
         public DirectionInputs {
             gapsMetres = List.copyOf(gapsMetres);
         }
-    }
 
-    /** What the expected spacing was taken from. */
-    public enum SpacingBasis {
-
-        /** The timetable's headway, turned into a distance with the route's measured speed. */
-        SCHEDULE,
-
-        /** No timetable comparison was possible, so spacing is judged against its own average. */
-        OBSERVED
+        /** Inputs for a direction in which no bunching was looked for or found. */
+        public DirectionInputs(
+                String routeId,
+                short directionId,
+                List<Double> gapsMetres,
+                int analysedVehicles,
+                int freshPlacedVehicles,
+                int staleVehicles,
+                int terminalVehicles,
+                double shapeLengthMetres,
+                boolean loop,
+                boolean scheduleCovered,
+                Double scheduledHeadwaySeconds,
+                Double speedMetresPerSecond) {
+            this(routeId, directionId, gapsMetres, analysedVehicles, freshPlacedVehicles, staleVehicles,
+                    terminalVehicles, shapeLengthMetres, loop, scheduleCovered, scheduledHeadwaySeconds,
+                    speedMetresPerSecond, 0);
+        }
     }
 
     /**
@@ -81,6 +95,7 @@ public final class RouteHealthModels {
      * @param staleVehicles      vehicles excluded for not having reported recently
      * @param terminalVehicles   vehicles excluded for being at a terminal
      * @param basis              what the expected spacing was taken from
+     * @param bunchingClusters   packs of vehicles found while a large gap opens elsewhere
      */
     public record HealthMetrics(
             int vehicles,
@@ -96,7 +111,29 @@ public final class RouteHealthModels {
             Double speedMetresPerSecond,
             int staleVehicles,
             int terminalVehicles,
-            SpacingBasis basis) {
+            SpacingBasis basis,
+            int bunchingClusters) {
+
+        /** Figures for a direction in which no bunching was found. */
+        public HealthMetrics(
+                int vehicles,
+                int gaps,
+                Double meanGapMetres,
+                Double maxGapMetres,
+                Double variation,
+                Double gapRatio,
+                Double expectedGapMetres,
+                Double expectedVehicles,
+                Double supplyRatio,
+                Double scheduledHeadwaySeconds,
+                Double speedMetresPerSecond,
+                int staleVehicles,
+                int terminalVehicles,
+                SpacingBasis basis) {
+            this(vehicles, gaps, meanGapMetres, maxGapMetres, variation, gapRatio, expectedGapMetres,
+                    expectedVehicles, supplyRatio, scheduledHeadwaySeconds, speedMetresPerSecond, staleVehicles,
+                    terminalVehicles, basis, 0);
+        }
     }
 
     public record DirectionHealth(

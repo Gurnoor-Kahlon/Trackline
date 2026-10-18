@@ -19,6 +19,9 @@ public enum ReasonCode {
     /** Far fewer vehicles are running than the timetable calls for. */
     FEWER_VEHICLES_THAN_SCHEDULED,
 
+    /** Vehicles are running in a pack while a large gap opens elsewhere on the same direction. */
+    BUNCHING,
+
     // --- why a verdict is weaker than it could be ---
 
     /** Only two vehicles, so one gap is all there is to judge. */

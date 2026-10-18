@@ -408,3 +408,29 @@ only tail there is, so read it as "tens of milliseconds".
 25 requests each, over `curl` to localhost with a new connection per request, so these include
 connection setup. Both are a Redis read and a small amount of mapping; the list adds one query to
 name the routes. Not measured: the Redis-down path, or load beyond one client.
+
+## Bunching detection
+
+**Measured 2026-10-13**, evening rush, on the live TTC feed, API from source on the same laptop as the
+database. This is a loaded run and the cost of detection could not be separated from it.
+
+The detector shares the route health pass: both read the same vehicles, sorted once, and the strip
+is published beside the verdict. The pass was **18.6 ms** on average in the route health measurement above (2026-10-12, about
+1,000 vehicles). Measured again on the 2026-10-13 run, with bunching in the pass, it averaged **278 ms** over 26
+passes (slowest 1.4 s) and 84 ms over the next two. That is not the cost of bunching. In the same cycles
+projection onto routes rose from about 160 ms to about 660 ms on average, roughly four times, and the snapshot held
+more vehicles (1,813 vehicles on 184 routes at the evening peak, against about 1,000 earlier), so the host or the feed was
+simply busier. The one safe reading is that the pass stayed under a second at the peak. A clean figure needs both builds run
+back to back at the same hour, which was not done.
+
+| Endpoint | Min | Median | Max |
+| --- | ---: | ---: | ---: |
+| `GET /routes/501/bunching` (about 5.0 KB) | 24.4 ms | 28.6 ms | 392 ms |
+
+25 requests over `curl` to localhost with a new connection per request, so these include connection
+setup, measured at the same loaded time as the pass above. The response combines a Redis read of the spacing
+document with one indexed query for the route's events (open ones, and those resolved in the last 24 hours), which is why it is
+slower than the health endpoints. Not measured: the Redis-down path, or more than one client.
+
+Storage: events are written once and updated in place, 306 rows over the 21-minute window in
+[bunching-detection.md](bunching-detection.md). They are kept indefinitely until the retention work in milestone 16.

@@ -180,6 +180,34 @@ trackline:
       # downtown streets included; a median below this is vehicles on a layover.
       min-plausible-speed-metres-per-second: 1
 
+    # Bunching: vehicles running in a pack while a gap opens elsewhere on the same direction
+    # (docs/bunching-detection.md). Round starting points like the health bands, not fitted:
+    # there is no ground truth of known bunching to fit them to.
+    bunching:
+      # Two neighbours are bunched when the gap between them is under this share of the expected spacing.
+      close-ratio: 0.35
+      # Reported only if a gap elsewhere is over this multiple of the expected spacing. Dense but
+      # evenly spaced service is not bunching; this rule is what keeps it so.
+      service-gap-ratio: 1.8
+      severe-gap-ratio: 2.5
+      severe-cluster-size: 3
+      # With fewer vehicles no gap elsewhere can be established.
+      min-vehicles: 3
+      # Without a timetable the yardstick is the vehicles' own average, and with three vehicles a close
+      # pair makes the other gap about twice that average by arithmetic alone. Four is the fewest at
+      # which a pack beside a wide gap says something the average did not already guarantee.
+      min-vehicles-without-timetable: 4
+      # An open bunch is the same bunch as a new one when they share this many vehicles, so a
+      # vehicle joining or leaving does not make a new event.
+      min-shared-vehicles: 2
+      # The feed advances about every 20 s, so two analyses without it is about a minute: long
+      # enough that a bunch flickering across a threshold stays one event.
+      cycles-to-resolve: 2
+      # A pack is recorded only once seen on this many analyses in a row, about a minute. The first
+      # live run recorded 166 packs in four minutes and most lasted one or two analyses: vehicles
+      # passing at a stop. It is dated from its first sighting, so waiting loses no time.
+      cycles-to-confirm: 3
+
 server:
   port: ${API_PORT:8080}
   error:

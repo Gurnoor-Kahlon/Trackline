@@ -1,7 +1,8 @@
 "use client";
 
+import { fetchRouteBunching } from "@/lib/api/bunching";
 import { fetchHealthRoutes, fetchRouteHealth } from "@/lib/api/health";
-import type { RouteHealth, RouteHealthList } from "@/lib/api/types";
+import type { RouteBunching, RouteHealth, RouteHealthList } from "@/lib/api/types";
 import { usePolledEnvelope, type PolledResult } from "@/lib/polling/usePolledEnvelope";
 
 /**
@@ -23,4 +24,14 @@ export function useRouteHealth(routeId: string | null): PolledResult<RouteHealth
 /** The verdict for every route that has vehicles, worst first. */
 export function useHealthRoutes(): PolledResult<RouteHealthList> {
   return usePolledEnvelope((signal) => fetchHealthRoutes([], signal), "all", HEALTH_REFRESH_MS);
+}
+
+/** Where one route's vehicles are and which are bunched; fetches nothing while no route is selected. */
+export function useRouteBunching(routeId: string | null): PolledResult<RouteBunching> {
+  return usePolledEnvelope(
+    (signal) => fetchRouteBunching(routeId ?? "", signal),
+    `bunching:${routeId ?? ""}`,
+    HEALTH_REFRESH_MS,
+    routeId !== null,
+  );
 }

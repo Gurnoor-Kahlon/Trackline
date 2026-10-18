@@ -10,7 +10,7 @@ import ca.trackline.api.analytics.health.RouteHealthModels.DirectionHealth;
 import ca.trackline.api.analytics.health.RouteHealthModels.HealthMetrics;
 import ca.trackline.api.analytics.health.RouteHealthModels.HealthSnapshot;
 import ca.trackline.api.analytics.health.RouteHealthModels.RouteHealth;
-import ca.trackline.api.analytics.health.RouteHealthModels.SpacingBasis;
+import ca.trackline.api.analytics.spacing.SpacingBasis;
 import ca.trackline.api.analytics.health.RouteHealthStore.HealthRead;
 import ca.trackline.api.common.envelope.DataSource;
 import ca.trackline.api.common.error.GlobalExceptionHandler;

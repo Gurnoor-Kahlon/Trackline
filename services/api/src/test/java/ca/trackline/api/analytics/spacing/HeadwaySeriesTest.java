@@ -1,4 +1,4 @@
-package ca.trackline.api.analytics.health;
+package ca.trackline.api.analytics.spacing;
 
 import java.util.List;
 

@@ -7,7 +7,8 @@ import ca.trackline.api.analytics.health.RouteHealthModels.DirectionHealth;
 import ca.trackline.api.analytics.health.RouteHealthModels.DirectionInputs;
 import ca.trackline.api.analytics.health.RouteHealthModels.HealthMetrics;
 import ca.trackline.api.analytics.health.RouteHealthModels.RouteHealth;
-import ca.trackline.api.analytics.health.RouteHealthModels.SpacingBasis;
+import ca.trackline.api.analytics.spacing.SpacingBasis;
+import ca.trackline.api.analytics.spacing.SpacingYardstick;
 
 /**
  * Judges whether service on a route is coherent, from how evenly its vehicles are spaced.
@@ -36,10 +37,11 @@ import ca.trackline.api.analytics.health.RouteHealthModels.SpacingBasis;
  * A verdict resting on two vehicles is held to the middle of the range: never better than
  * NORMAL and never worse than UNSTABLE, since neither extreme is claimed on one gap.
  *
- * <p>Two inputs the original design named are not here, deliberately. Service-alert
- * severity: every alert the TTC publishes states an unknown effect, so a "no service"
- * alert cannot be told from an elevator outage by anything but its wording. And bunching
- * clusters, which arrive with their own detector in a later milestone.
+ * <p>A direction with a bunch, vehicles in a pack while a large gap opens elsewhere, is
+ * also at least UNSTABLE and says so with the BUNCHING reason. One input the original design
+ * named is not here, deliberately: service-alert severity. Every alert the TTC publishes
+ * states an unknown effect, so a "no service" alert cannot be told from an elevator outage
+ * by anything but its wording.
  */
 public final class RouteHealthCalculator {
 
@@ -64,17 +66,12 @@ public final class RouteHealthCalculator {
         double max = gaps.stream().mapToDouble(Double::doubleValue).max().orElse(0);
         Double variation = variation(gaps, mean);
 
-        Double expectedGap = null;
-        SpacingBasis basis = SpacingBasis.OBSERVED;
-        if (in.scheduleCovered() && in.scheduledHeadwaySeconds() != null && in.speedMetresPerSecond() != null) {
-            expectedGap = in.scheduledHeadwaySeconds() * in.speedMetresPerSecond();
-            basis = SpacingBasis.SCHEDULE;
-        } else if (!in.scheduleCovered()) {
-            reasons.add(ReasonCode.NO_SCHEDULE_COVERAGE);
-        } else if (in.scheduledHeadwaySeconds() == null) {
-            reasons.add(ReasonCode.NO_SCHEDULED_HEADWAY);
-        } else {
-            reasons.add(ReasonCode.SPEED_UNKNOWN);
+        SpacingYardstick yardstickSource =
+                SpacingYardstick.of(in.scheduleCovered(), in.scheduledHeadwaySeconds(), in.speedMetresPerSecond());
+        Double expectedGap = yardstickSource.scheduledMetres();
+        SpacingBasis basis = yardstickSource.basis();
+        if (yardstickSource.shortfall() != null) {
+            reasons.add(yardstickSource.shortfall());
         }
 
         if (basis == SpacingBasis.OBSERVED && in.analysedVehicles() < thresholds.mediumConfidenceVehicles()) {
@@ -92,7 +89,7 @@ public final class RouteHealthCalculator {
         // Without a timetable the only yardstick is the vehicles' own average spacing, so the
         // largest gap is measured against that. It can still reveal one big hole among small
         // ones, but it cannot reveal a route whose every gap is too large.
-        double yardstick = expectedGap != null ? expectedGap : mean;
+        double yardstick = yardstickSource.metres(gaps);
         Double gapRatio = yardstick > 0 ? max / yardstick : null;
 
         Double expectedVehicles = null;
@@ -104,6 +101,16 @@ public final class RouteHealthCalculator {
         }
 
         RouteHealthState state = classify(variation, gapRatio, supplyRatio);
+
+        // A pack with a gap elsewhere is uneven service by definition. With both measured against
+        // the same yardstick the large gap already makes this at least unstable, so the floor is
+        // normally redundant, but it is stated here so the rule holds on its own.
+        if (in.bunchingClusters() > 0) {
+            reasons.add(ReasonCode.BUNCHING);
+            if (state == RouteHealthState.EXCELLENT || state == RouteHealthState.NORMAL) {
+                state = RouteHealthState.UNSTABLE;
+            }
+        }
 
         if (variation != null && variation > thresholds.unstableCv()) {
             reasons.add(ReasonCode.HIGH_HEADWAY_VARIATION);
@@ -131,7 +138,7 @@ public final class RouteHealthCalculator {
         HealthMetrics metrics = new HealthMetrics(
                 in.analysedVehicles(), gaps.size(), mean, max, variation, gapRatio, expectedGap,
                 expectedVehicles, supplyRatio, in.scheduledHeadwaySeconds(), in.speedMetresPerSecond(),
-                in.staleVehicles(), in.terminalVehicles(), basis);
+                in.staleVehicles(), in.terminalVehicles(), basis, in.bunchingClusters());
         return new DirectionHealth(in.directionId(), state, confidence, reasons, metrics);
     }
 

@@ -134,13 +134,18 @@ data produced a bad answer without it:
   so a "no service" alert cannot be told from an elevator outage by anything but its wording, and
   Trackline does not read wording. A real `NO_SERVICE` alert therefore does not move a route's
   state today.
-- **Bunching clusters.** They arrive with their own detector in milestone 15 and will become an
-  input then. Until then, bunched vehicles show only as high variation or one large gap.
+## What bunching adds
+
+Bunching has its own detector ([bunching-detection.md](bunching-detection.md)), judged against the same
+spacing. A direction with a pack of vehicles while a gap above 1.8 times the expected spacing opens
+elsewhere gets the reason `BUNCHING`, a count of groups in its figures, and is at least `UNSTABLE`. Since
+that gap already makes it `UNSTABLE` through the gap ratio, the rule names the cause and changes no state
+today. It was added after the first version, which is why that version's measurements below do not include it.
 
 ## Reason codes
 
-`HIGH_HEADWAY_VARIATION`, `LARGE_GAP` and `FEWER_VEHICLES_THAN_SCHEDULED` say why a verdict was
-reached. `FEW_VEHICLES`, `STALE_VEHICLES`, `NO_SCHEDULE_COVERAGE`, `NO_SCHEDULED_HEADWAY` and
+`HIGH_HEADWAY_VARIATION`, `LARGE_GAP`, `FEWER_VEHICLES_THAN_SCHEDULED` and `BUNCHING` say why a
+verdict was reached. `FEW_VEHICLES`, `STALE_VEHICLES`, `NO_SCHEDULE_COVERAGE`, `NO_SCHEDULED_HEADWAY` and
 `SPEED_UNKNOWN` say why it is weaker than it could be. `INSUFFICIENT_VEHICLES`, `NO_REALTIME_FEED`
 (the subway: the TTC publishes no positions for it) and `NOT_ANALYSED_YET` say why there is none.
 
@@ -181,7 +186,7 @@ age of the data and not of the response.
 | Plan | Built | Why |
 | --- | --- | --- |
 | Alert severity as an input | not used | Every effect is `UNKNOWN_EFFECT`. |
-| Bunching clusters as an input | not yet | Milestone 15 builds the detector. |
+| Bunching clusters as an input | an input from milestone 15, as a reason and a floor of `UNSTABLE` | See [bunching-detection.md](bunching-detection.md). |
 | Speed "over the last 15 min" | median of per-vehicle net progress, in memory | Needs no history query; rebuilt from live readings, at the cost of a few minutes of `SPEED_UNKNOWN` after a restart. |
 | Verdict from two vehicles | `UNKNOWN` without a timetable, held to `NORMAL`-`UNSTABLE` with one | See the safeguards above. |
 | Variation from any number of gaps | from three | Two saturate it. |

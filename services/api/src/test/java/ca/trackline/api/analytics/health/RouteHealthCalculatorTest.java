@@ -6,7 +6,7 @@ import java.util.List;
 import ca.trackline.api.analytics.health.RouteHealthModels.DirectionHealth;
 import ca.trackline.api.analytics.health.RouteHealthModels.DirectionInputs;
 import ca.trackline.api.analytics.health.RouteHealthModels.RouteHealth;
-import ca.trackline.api.analytics.health.RouteHealthModels.SpacingBasis;
+import ca.trackline.api.analytics.spacing.SpacingBasis;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -504,5 +504,60 @@ class RouteHealthCalculatorTest {
         assertThat(RouteHealthState.worse(RouteHealthState.NORMAL, RouteHealthState.UNKNOWN)).isEqualTo(RouteHealthState.NORMAL);
         assertThat(RouteHealthState.worse(RouteHealthState.UNSTABLE, RouteHealthState.EXCELLENT)).isEqualTo(RouteHealthState.UNSTABLE);
         assertThat(RouteHealthState.worse(RouteHealthState.UNKNOWN, RouteHealthState.UNKNOWN)).isEqualTo(RouteHealthState.UNKNOWN);
+    }
+
+    // --- bunching ---------------------------------------------------------------------------------------
+
+    private static DirectionInputs evenButBunched(int clusters, int vehicles) {
+        // Gaps that are perfectly even, so nothing but the bunching input could move the verdict.
+        return new DirectionInputs(
+                ROUTE, (short) 0, Collections.nCopies(vehicles - 1, 3000.0), vehicles, vehicles, 0, 0, LENGTH, false,
+                true, 600.0, 5.0, clusters);
+    }
+
+    @Test
+    void aBunchIsNamedAsAReasonAndCountedInTheFigures() {
+        DirectionHealth health = judge(evenButBunched(1, 5));
+
+        assertThat(health.reasons()).contains(ReasonCode.BUNCHING);
+        assertThat(health.metrics().bunchingClusters()).isEqualTo(1);
+    }
+
+    @Test
+    void aBunchMakesAnOtherwiseExcellentRouteAtLeastUnstable() {
+        // With the pack and the gap measured against one yardstick the gap already does this, so the
+        // rule is stated and tested on its own, with the figures that would have made it excellent.
+        assertThat(judge(evenButBunched(0, 5)).state()).isEqualTo(RouteHealthState.EXCELLENT);
+        assertThat(judge(evenButBunched(1, 5)).state()).isEqualTo(RouteHealthState.UNSTABLE);
+    }
+
+    @Test
+    void aBunchDoesNotSoftenAWorseVerdict() {
+        // 10,000 m gaps against 3,000 expected is a major disruption with or without a bunch.
+        DirectionHealth health = judge(new DirectionInputs(
+                ROUTE, (short) 0, List.of(10_000.0, 10_000.0, 10_000.0), 4, 4, 0, 0, 40_000, false, true, 600.0, 5.0, 1));
+
+        assertThat(health.state()).isEqualTo(RouteHealthState.MAJOR_DISRUPTION);
+        assertThat(health.reasons()).contains(ReasonCode.BUNCHING);
+    }
+
+    @Test
+    void noBunchMeansNoBunchingReason() {
+        assertThat(judge(evenButBunched(0, 5)).reasons()).doesNotContain(ReasonCode.BUNCHING);
+        assertThat(judge(evenButBunched(0, 5)).metrics().bunchingClusters()).isZero();
+    }
+
+    @Test
+    void aDirectionWithTooFewVehiclesIsNotJudgedEvenIfItReportsABunch() {
+        DirectionHealth health = judge(new DirectionInputs(
+                ROUTE, (short) 0, List.of(), 1, 1, 0, 0, LENGTH, false, true, 600.0, 5.0, 1));
+
+        assertThat(health.state()).isEqualTo(RouteHealthState.UNKNOWN);
+        assertThat(health.reasons()).doesNotContain(ReasonCode.BUNCHING);
+    }
+
+    @Test
+    void severalBunchesAreCountedNotJustOne() {
+        assertThat(judge(evenButBunched(3, 8)).metrics().bunchingClusters()).isEqualTo(3);
     }
 }

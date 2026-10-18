@@ -33,7 +33,8 @@ which way it is going, derived from its position (see
 [docs/route-progress.md](docs/route-progress.md)). From those placements each cycle
 judges how evenly every route's vehicles are spaced, against the timetable where the
 imported schedule covers the day, and serves a verdict with its reasons and the figures
-behind it (see [docs/route-health.md](docs/route-health.md)).
+behind it (see [docs/route-health.md](docs/route-health.md)). Packs of vehicles running together while a gap opens elsewhere are found and recorded as events
+(see [docs/bunching-detection.md](docs/bunching-detection.md)).
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
@@ -325,6 +326,19 @@ dropped rather than allowed to hold memory or delay the others. The protocol, th
 limits and the places it differs from the original plan are in
 [docs/streaming.md](docs/streaming.md); measurements with 25 simultaneous clients
 are in [docs/performance.md](docs/performance.md).
+
+### Bunching
+
+Vehicles running in a pack are only reported as bunched while a large gap opens elsewhere on the
+same direction, because a dense route that is evenly spaced makes nobody wait longer. A bunch is
+recorded as one event for its whole life, opened when first seen, updated while it lasts and
+resolved when it has been gone for two analyses in a row, with times that are when Trackline saw it
+rather than when it formed or broke up. The route panel draws each direction's vehicles along the
+route with any pack marked. See [docs/bunching-detection.md](docs/bunching-detection.md).
+
+```bash
+curl "http://localhost:8080/api/v1/routes/501/bunching"
+```
 
 ### Route health
 

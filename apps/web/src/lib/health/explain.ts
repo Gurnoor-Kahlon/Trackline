@@ -149,6 +149,13 @@ function measuredClauses(direction: DirectionHealth): string {
   if (direction.reasons.includes("FEWER_VEHICLES_THAN_SCHEDULED") && metrics.supplyRatio !== null) {
     clauses.push(`only ${percent(metrics.supplyRatio)} of the vehicles the timetable calls for are running`);
   }
+  if (direction.reasons.includes("BUNCHING") && metrics.bunchingClusters > 0) {
+    clauses.push(
+      metrics.bunchingClusters === 1
+        ? "one group of vehicles is running together"
+        : `${metrics.bunchingClusters} groups of vehicles are running together`,
+    );
+  }
 
   if (clauses.length === 0) {
     return "Spacing was measured, but too few vehicles for a figure to be stated.";
@@ -197,6 +204,7 @@ export function directionFigures(metrics: HealthMetrics): FigureRow[] {
           : `${(metrics.speedMetresPerSecond * 3.6).toFixed(1)} km/h`,
     },
   ];
+  rows.push({ label: "Groups running together", value: String(metrics.bunchingClusters) });
   if (metrics.staleVehicles > 0) {
     rows.push({ label: "Left out: not reporting", value: String(metrics.staleVehicles) });
   }

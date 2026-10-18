@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fetchEnvelope } from "@/lib/api/client";
+import { fetchRouteBunching } from "@/lib/api/bunching";
 import { fetchHealthRoutes, fetchRouteHealth } from "@/lib/api/health";
 
 vi.mock("@/lib/api/client", () => ({ fetchEnvelope: vi.fn() }));
@@ -37,5 +38,19 @@ describe("the health API client", () => {
     await fetchHealthRoutes(["UNSTABLE", "MAJOR_DISRUPTION"]);
 
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/health/routes?state=UNSTABLE&state=MAJOR_DISRUPTION", {});
+  });
+
+  it("asks for a routes bunching by its encoded id", async () => {
+    await fetchRouteBunching("501/odd id");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/routes/501%2Fodd%20id/bunching", {});
+  });
+
+  it("passes a cancellation signal through for bunching too", async () => {
+    const controller = new AbortController();
+
+    await fetchRouteBunching("501", controller.signal);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/routes/501/bunching", { signal: controller.signal });
   });
 });

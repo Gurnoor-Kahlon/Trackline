@@ -6,7 +6,7 @@ import java.util.List;
 import ca.trackline.api.analytics.health.RouteHealthModels.DirectionHealth;
 import ca.trackline.api.analytics.health.RouteHealthModels.HealthMetrics;
 import ca.trackline.api.analytics.health.RouteHealthModels.RouteHealth;
-import ca.trackline.api.analytics.health.RouteHealthModels.SpacingBasis;
+import ca.trackline.api.analytics.spacing.SpacingBasis;
 import ca.trackline.api.routes.TransitMode;
 
 /**
@@ -85,6 +85,7 @@ public final class HealthDtos {
      * @param supplyRatio vehicles running over vehicles the timetable calls for
      * @param basis       SCHEDULE when the expected spacing came from the timetable, OBSERVED when it is
      *                    the vehicles' own average
+     * @param bunchingClusters packs of vehicles found while a large gap opens elsewhere on the direction
      */
     public record MetricsView(
             int vehicles,
@@ -100,7 +101,8 @@ public final class HealthDtos {
             Double speedMetresPerSecond,
             int staleVehicles,
             int terminalVehicles,
-            SpacingBasis basis) {
+            SpacingBasis basis,
+            int bunchingClusters) {
 
         static MetricsView of(HealthMetrics metrics) {
             return new MetricsView(
@@ -117,7 +119,8 @@ public final class HealthDtos {
                     round(metrics.speedMetresPerSecond(), 100),
                     metrics.staleVehicles(),
                     metrics.terminalVehicles(),
-                    metrics.basis());
+                    metrics.basis(),
+                    metrics.bunchingClusters());
         }
 
         private static Double round(Double value, double scale) {

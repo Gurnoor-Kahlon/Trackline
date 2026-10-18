@@ -9,8 +9,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import ca.trackline.api.alerts.AlertLifecycleService;
+import ca.trackline.api.analytics.bunching.BunchingEventService;
 import ca.trackline.api.analytics.health.HealthAnalysisMetrics;
 import ca.trackline.api.analytics.health.RouteHealthService;
+import ca.trackline.api.analytics.health.RouteHealthService.AnalysisResult;
 import ca.trackline.api.analytics.progress.ProgressMetrics;
 import ca.trackline.api.analytics.progress.RouteProgressProjector;
 import ca.trackline.api.analytics.progress.RouteProgressSnapshot;
@@ -57,6 +59,7 @@ public class IngestionCycleService {
     private final StreamHub streamHub;
     private final AlertLifecycleService alertLifecycle;
     private final RouteHealthService routeHealth;
+    private final BunchingEventService bunchingEvents;
     private final HealthAnalysisMetrics healthMetrics;
     private final IngestionRunRecorder runRecorder;
     private final IngestionMetrics metrics;
@@ -84,6 +87,7 @@ public class IngestionCycleService {
             StreamHub streamHub,
             AlertLifecycleService alertLifecycle,
             RouteHealthService routeHealth,
+            BunchingEventService bunchingEvents,
             HealthAnalysisMetrics healthMetrics,
             IngestionRunRecorder runRecorder,
             IngestionMetrics metrics,
@@ -100,6 +104,7 @@ public class IngestionCycleService {
         this.streamHub = streamHub;
         this.alertLifecycle = alertLifecycle;
         this.routeHealth = routeHealth;
+        this.bunchingEvents = bunchingEvents;
         this.healthMetrics = healthMetrics;
         this.runRecorder = runRecorder;
         this.metrics = metrics;
@@ -178,7 +183,7 @@ public class IngestionCycleService {
             inProcessCache.store(snapshot.vehicles(), snapshot.headerTimestamp());
             liveState.replaceVehicles(snapshot.vehicles(), snapshot.headerTimestamp());
             publishToStreams(snapshot);
-            analyseRouteHealth(snapshot, progress);
+            analyseRouteHealth(snapshot, progress, status);
         }
 
         if (feed == RealtimeFeed.ALERTS) {
@@ -228,15 +233,38 @@ public class IngestionCycleService {
      * runs, so an exception must not unwind past them. Skipped when projection failed, since
      * there is nothing placed to judge.
      */
-    private void analyseRouteHealth(FeedSnapshot snapshot, RouteProgressSnapshot progress) {
+    private void analyseRouteHealth(FeedSnapshot snapshot, RouteProgressSnapshot progress, IngestionRunStatus status) {
         if (progress.size() == 0) {
             return;
         }
+        AnalysisResult result;
         try {
-            routeHealth.analyse(snapshot.vehicles(), progress, snapshot.headerTimestamp());
+            result = routeHealth.analyse(snapshot.vehicles(), progress, snapshot.headerTimestamp());
         } catch (RuntimeException failure) {
             healthMetrics.recordFailure();
             log.warn("Could not analyse route health: {}", failure.toString());
+            return;
+        }
+        recordBunching(result, status);
+    }
+
+    /**
+     * Opens, continues and resolves the stored bunching events from an analysis.
+     *
+     * <p>Only for a cycle trusted as a whole. Applying an analysis resolves every open bunch it
+     * does not contain, so one built from a fleet that suddenly shrank would end real bunches.
+     * A suspect cycle is left out: the cost is a delay in resolving, never a wrongly resolved bunch.
+     */
+    private void recordBunching(AnalysisResult result, IngestionRunStatus status) {
+        if (status != IngestionRunStatus.SUCCESS) {
+            log.warn("{} cycle was {}; stored bunching events were left as they were", RealtimeFeed.VEHICLE_POSITIONS, status);
+            return;
+        }
+        try {
+            bunchingEvents.apply(result.spacing().bunches(), Instant.now(clock));
+        } catch (RuntimeException failure) {
+            healthMetrics.recordFailure();
+            log.warn("Could not record bunching events: {}", failure.toString());
         }
     }
 

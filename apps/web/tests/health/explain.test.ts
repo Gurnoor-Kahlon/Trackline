@@ -124,6 +124,26 @@ describe("explaining a verdict", () => {
     expect(explainHealth(health).headline).toContain("only 39% of the vehicles the timetable calls for are running");
   });
 
+  it("says one group of vehicles is running together when there is one", () => {
+    const health = routeHealth({
+      directions: [direction({ state: "UNSTABLE", reasons: ["BUNCHING"], metrics: metrics({ bunchingClusters: 1 }) })],
+    });
+
+    expect(explainHealth(health).headline).toContain("one group of vehicles is running together");
+  });
+
+  it("counts the groups when there are several", () => {
+    const health = routeHealth({
+      directions: [direction({ state: "UNSTABLE", reasons: ["BUNCHING"], metrics: metrics({ bunchingClusters: 3 }) })],
+    });
+
+    expect(explainHealth(health).headline).toContain("3 groups of vehicles are running together");
+  });
+
+  it("does not mention a group when bunching is not part of the reason", () => {
+    expect(explainHealth(routeHealth()).headline).not.toMatch(/running together/);
+  });
+
   it("does not mention supply when it is not part of the reason", () => {
     expect(explainHealth(routeHealth()).headline).not.toMatch(/timetable calls for/);
   });
@@ -274,6 +294,11 @@ describe("the figures behind a direction", () => {
     expect(figures["Timetable spacing"]).toBe("Not measured");
     expect(figures["Measured speed"]).toBe("Not measured");
     expect(Object.values(figures)).not.toContain("0%");
+  });
+
+  it("always states how many groups were found, including none", () => {
+    expect(byLabel(directionFigures(metrics()))["Groups running together"]).toBe("0");
+    expect(byLabel(directionFigures(metrics({ bunchingClusters: 2 })))["Groups running together"]).toBe("2");
   });
 
   it("lists vehicles left out only when there were some", () => {
