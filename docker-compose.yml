@@ -1,8 +1,17 @@
 name: trackline
 
-# Local development infrastructure only. The Spring Boot API and the Next.js web
-# app are run natively (mvnw / pnpm dev) for fast reloads; a `full` profile that
-# containerises them is added in Milestone 18.
+# Two ways to use this file.
+#
+#   docker compose up -d                  just PostgreSQL and Redis; the API and the web app run natively
+#                                         (./mvnw spring-boot:run, pnpm dev) for fast reloads.
+#   docker compose --profile full up -d --build
+#                                         everything in containers, as it would run in production: the API image,
+#                                         the web image, and the two stores. Then load the schedule once:
+#                                         docker compose --profile full run --rm \
+#                                           -e TRACKLINE_GTFS_REALTIME_ENABLED=false \
+#                                           -e TRACKLINE_HISTORY_ENABLED=false api --import-gtfs
+#                                         (the two settings keep this one-off process from polling the feeds
+#                                         beside the running API while it imports)
 
 services:
   postgres:
@@ -48,6 +57,58 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  # --- the application, in containers (profile: full) -------------------------------------------------------------
+
+  api:
+    profiles: ["full"]
+    build:
+      context: ./services/api
+    image: trackline-api:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # The production profile, so what runs here is what runs there: structured logs, only the health endpoint exposed,
+      # no manual import endpoint.
+      SPRING_PROFILES_ACTIVE: prod
+      # Service names, not localhost: inside the compose network these are the stores' addresses, and the ports are the
+      # containers' own, not the ones published on the host.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-trackline}
+      POSTGRES_USER: ${POSTGRES_USER:-trackline}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (see .env.example)}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      # Where a browser is when it calls the API.
+      TRACKLINE_CORS_ALLOWED_ORIGINS: ${WEB_ORIGIN:-http://localhost:3000}
+      # Not marked required here, because compose reads every service's settings even when starting only the databases, and
+      # `docker compose up -d` must work before this is chosen. The API refuses to start without it, and says why.
+      TRACKLINE_AUTH_JWT_SECRET: ${TRACKLINE_AUTH_JWT_SECRET:-}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  web:
+    profiles: ["full"]
+    build:
+      context: ./apps/web
+      args:
+        # Where a browser reaches the API. Written into the page at build time, so changing it means building again.
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_URL:-http://localhost:8080}
+    image: trackline-web:local
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Where this server reaches the API, which on this network is not where a browser does.
+      API_INTERNAL_URL: http://api:8080
+    ports:
+      - "${WEB_PORT:-3000}:3000"
     restart: unless-stopped
 
 volumes:

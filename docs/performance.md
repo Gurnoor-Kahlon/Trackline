@@ -4,10 +4,206 @@ Every figure here was measured on a real run and is dated. Nothing is estimated,
 extrapolated or rounded in Trackline's favour. A number without an entry in this
 file does not get published anywhere else.
 
-**Environment for all measurements below**
+**Environment for the measurements below, unless a section says otherwise**
 Windows 11, Docker Desktop 29.2.0 (WSL2), PostgreSQL 16.4 with PostGIS 3.4 in a
 container, Java 21.0.10 (Temurin), API run from source via Maven on the host.
-A laptop, not a server.
+A laptop, not a server. The first section, the release pass, is the exception:
+it ran the application as the production container images, and says so.
+
+---
+
+## Release measurement pass
+
+**Measured 2026-10-19, between 13:30 and 14:15 Toronto time (17:30 to 18:15 UTC)**, a Monday afternoon, for the release of milestone 18.
+This section differs from the rest of the file in one way that matters: the application ran as the **production container images built
+from this repository's Dockerfiles**, under the `prod` profile, against **new, empty volumes**, with the schedule imported into them and the
+live TTC feeds. Everything else in the file ran the API from source.
+
+**Environment.** 13th-gen Intel Core i7-1355U (10 cores, 12 threads), 15.7 GB, Windows 11 Home, Docker Desktop 29.2.0 (WSL2, given 12 CPUs
+and 7.6 GiB). PostgreSQL 16 with PostGIS 3.4 (`postgis/postgis:16-3.4`), Redis 7 (`redis:7-alpine`), the API on Temurin Java 21 (21.0.12 in the
+container, 21.0.10 on the host where the tests ran), the web application on Node 24. A laptop, not a server. The development containers were idle
+throughout. Where something else was running on the machine (a build, the tests), the section says so, because it changes the figures.
+
+### Importing the schedule in the container
+
+`docker compose --profile full run --rm api --import-gtfs`, into an empty database, downloading the live archive.
+
+| | |
+| --- | ---: |
+| Whole import, as the importer reports it | **129,686 ms** |
+| Wall time of the one-off container, including starting the JVM | 148.5 s |
+| Rows loaded | 4,943,365 |
+| Derived afterwards | 1,571 route shapes, 108 stations, 20,945 scheduled headways |
+| Schedule window of the archive | 2026-09-30 to 2026-10-31 (so it covers the day of the run) |
+| Run again, archive unchanged (`status=UNCHANGED`) | 2,539 ms |
+
+Rows by table: 236 routes, 9,409 stops, 10 calendar services, 104 calendar exceptions, 138,036 trips, 438,263 shape points, 4,357,307 stop times.
+These are the figures in [data-sources.md](data-sources.md).
+
+Beside the two imports from 2026-09-30 below (184.7 s into an empty database on a cold cache, and 86.6 s replacing data on a warm one), this one took
+129.7 s into an empty database in a container. All three are the same order, and the spread between them is the honest answer to "how long does it
+take": between one and a half and three minutes on this laptop. An unchanged archive took 11.3 s on 2026-09-30 and 2.5 s here; the difference was
+not investigated.
+
+**What the already-running API did meanwhile.** While this import was loading, the API that was already running had two cycles in progress, a vehicle
+cycle and a trip-update cycle that began at 13:30:53, and they took 117.1 s and 117.6 s: they ended when the import committed. Every other cycle in the
+run took tens or hundreds of milliseconds. The API kept answering from its last snapshot, so a visitor would have seen the data age for two minutes,
+not an error. A monthly import makes that a few minutes of staleness a month, and it is why [architecture.md](architecture.md) lists it as a limit. The
+one-off import also polled the feeds itself until it was told not to (`TRACKLINE_GTFS_REALTIME_ENABLED=false`); a repeat with that setting logged no
+cycles.
+
+### Ingestion cycles
+
+From `ingestion_runs` in the new database, with the API unconstrained, **in the quiet window 13:33:00 to 13:38:30** (the machine doing nothing else), at
+about 1,590 vehicles, 1,880 trip updates and 11 alerts per cycle:
+
+| Feed | Outcome | Cycles | Median | p95 | Max |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Vehicles | SUCCESS | 11 | **508 ms** | 620 ms | 622 ms |
+| Vehicles | NO_CHANGE | 21 | 22 ms | 30 ms | 38 ms |
+| Trip updates | SUCCESS | 11 | 74 ms | 86 ms | 88 ms |
+| Trip updates | NO_CHANGE | 5 | 60 ms | 71 ms | 73 ms |
+| Alerts | SUCCESS | 5 | 21 ms | 27 ms | 28 ms |
+
+A vehicle cycle that stores readings takes about half a second, most of it projecting vehicles onto routes, and the feed publishes a new one about every
+20 s, so the cycle uses about 2.5% of that time. Two of every three vehicle polls found nothing new (21 `NO_CHANGE` against 11 `SUCCESS`), which is the 10 s
+poll against the 20 s publisher doing what the interval was chosen to do.
+
+The same query over **13:33 to 13:51, which included** the endpoint benchmark below, a full `./mvnw verify` (three minutes), and the two streaming
+measurements, all on the same machine:
+
+| Feed | Outcome | Cycles | Median | p95 | Max |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Vehicles | SUCCESS | 36 | 494 ms | 1,807 ms | 3,120 ms |
+| Vehicles | NO_CHANGE | 69 | 25 ms | 68 ms | 806 ms |
+| Trip updates | SUCCESS | 36 | 72 ms | 599 ms | 714 ms |
+
+The medians barely moved and the tails grew by a factor of three or more. That is what a laptop does when a build and the tests run beside it, and it is
+published so that the quiet figures above are not read as what a busy machine does.
+
+Over the whole run, 13:30 to 14:15, there were **422 cycles: 223 `SUCCESS`, 198 `NO_CHANGE` and 1 `FAILED`**. The failure was a vehicle fetch that timed out
+connecting to `bustime.ttc.ca` after 3.2 s, at 13:52:21, seconds after the API container was recreated under the 0.5 CPU limit below, while its JVM was still
+starting. In one steady trip-update cycle, 7 of 1,851 entities were rejected, each naming a route the imported schedule does not have.
+
+### Read endpoints
+
+`node scripts/bench.mjs --api http://localhost:8090 --requests 200 --warmup 20`: one client, one request at a time over a reused connection, 20 warm-up
+requests not counted, against the production container with no resource limit, at 13:35 to 13:36 (inside the quiet window above). Latency is measured by the
+client and includes reading the body.
+
+| Endpoint | Source | Bytes | p50 | p95 | Max |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `GET /network/status` | LIVE | 231 | 8.7 ms | 15.3 ms | 26.1 ms |
+| `GET /routes?size=50` | STATIC | 6,999 | 9.0 ms | 14.2 ms | 20.2 ms |
+| `GET /routes/501` | STATIC | 573 | 18.7 ms | 22.0 ms | 28.9 ms |
+| `GET /routes/501/shape?simplifyMetres=20` | STATIC | 732 | 9.4 ms | 12.9 ms | 18.3 ms |
+| `GET /routes/501/stops` | STATIC | 13,959 | 17.3 ms | 26.6 ms | 53.2 ms |
+| `GET /stops/nearby` (1 km, downtown) | STATIC | 4,246 | 9.2 ms | 13.7 ms | 21.0 ms |
+| `GET /search?q=Kennedy` | STATIC | 2,071 | 35.0 ms | 43.7 ms | 92.9 ms |
+| `GET /vehicles` (whole fleet) | LIVE | 346,106 | 15.7 ms | 32.4 ms | 350.2 ms |
+| `GET /routes/501/vehicles` | LIVE | 5,066 | 12.3 ms | 15.9 ms | 25.2 ms |
+| `GET /routes/501/health` | LIVE | 1,293 | 9.2 ms | 14.4 ms | 66.3 ms |
+| `GET /health/routes` (every route) | LIVE | 35,127 | 13.0 ms | 19.5 ms | 26.0 ms |
+| `GET /routes/501/bunching` | LIVE | 2,731 | 10.3 ms | 14.7 ms | 21.1 ms |
+| `GET /alerts?size=100` | STORED | 12,056 | 10.1 ms | 17.1 ms | 27.0 ms |
+| `GET /routes/501/reliability?window=7d` | STORED | 605 | 8.2 ms | 13.9 ms | 20.1 ms |
+
+The whole-fleet read, 346 KB, is 15.7 ms at the median here against 55.9 ms on 2026-10-03. They are not the same measurement (that was a development build run
+from source, through a different client, with fewer vehicles), and this section does not claim a speed-up: the cause of the difference was not isolated. What
+the rows do show is that no read is slow, and that the filtered reads are still not much cheaper than the whole fleet, as before.
+
+**Redis hit ratio.** Redis's counters were reset immediately before the benchmark and read immediately after. Over the 14 endpoints, 3,080 requests, Redis
+recorded **1,320 hits and 0 misses**, which is exactly the six live-state endpoints times their 220 requests each: every one of those reads found its document.
+The other eight endpoints read PostgreSQL. This is the ratio for three keys that the API itself rewrites every cycle (the vehicle snapshot at about 442 KB, and
+the route health snapshot and spacing at about 163 KB and 124 KB, each with a time to live), so a miss would mean the API had not yet written one. It is not the hit
+ratio of a cache in front of a database, which would depend on how often a key could be evicted, and these cannot be.
+
+### Live stream fanout, again
+
+`StreamFanoutMeasurementTest`, as in [Live streaming](#live-streaming), run twice in a row at 13:49 and 13:50, **with the container stack (the API polling the live
+feeds) running on the same machine and nothing else**: 25 SSE clients, 30 cycles, a synthetic fleet of 1,500 vehicles of which 1,000 move 30 m a cycle.
+
+| Measure | Run 1 | Run 2 |
+| --- | ---: | ---: |
+| Snapshot on connect | 77,913 B | 77,913 B |
+| Delta, median / max | 51,707 / 78,047 B | 51,707 / 78,047 B |
+| `publish()` p50 / p95 / max | 1.63 / 11.40 / 13.16 ms | 1.68 / 8.40 / 10.08 ms |
+| Publish to received, p50 / p95 / max | 11.1 / 20.9 / 27.9 ms | 10.5 / 24.2 / 35.2 ms |
+| Deliveries (25 clients x 30 cycles) | 750 | 750 |
+| Replay ring of 30 events | about 7.8 MB | about 8.2 MB |
+
+As before, clients and server share a JVM and a machine, so these are an upper bound and not a model of a network, and 25 clients is the largest number tested.
+
+### The planned task size: 0.5 vCPU and 1 GiB
+
+The deployment plan runs the API in a task of that size, so at 13:51 the API container was recreated with `mem_limit: 1g` and `cpus: 0.5` and left to run against
+the live feed with the same database. These are its figures **from 13:59:45 to 14:09:00**, after its first minutes of starting up (which included the one failed
+cycle above), with nothing else running on the machine:
+
+| Feed | Outcome | Cycles | Median | p95 | Max |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Vehicles | SUCCESS | 20 | **393 ms** | 522 ms | 629 ms |
+| Vehicles | NO_CHANGE | 35 | 25 ms | 63 ms | 93 ms |
+| Trip updates | SUCCESS | 19 | 91 ms | 216 ms | 339 ms |
+| Alerts | SUCCESS | 9 | 20 ms | 24 ms | 25 ms |
+
+The medians are not worse than the unconstrained run's. They are not better in any way that means anything either: the samples are 20 and 11 cycles, from different
+minutes, and the fleet is changing. What can be said is that a half-CPU task completes a vehicle cycle in well under a second, against a poll interval of ten.
+
+| | |
+| --- | ---: |
+| Peak memory (cgroup `memory.peak`) | **436 MB** of 1 GiB |
+| Memory at the end, resident | 413 MiB |
+| CPU periods throttled over the whole run, including start-up | 1,049 of 5,945 (17.6%) |
+| Out-of-memory events | none |
+
+The same benchmark against that container (100 requests per endpoint after 20 warm-up) beside the unconstrained figures above:
+
+| Endpoint | Unconstrained p50 / p95 | 0.5 vCPU p50 / p95 / max |
+| --- | ---: | ---: |
+| `GET /network/status` | 8.7 / 15.3 ms | 14.7 / 100.7 / 177.2 ms |
+| `GET /routes/501/vehicles` | 12.3 / 15.9 ms | 17.5 / 89.2 / 100.6 ms |
+| `GET /vehicles` (whole fleet) | 15.7 / 32.4 ms | 20.3 / 113.3 / 373.0 ms |
+| `GET /routes/501/health` | 9.2 / 14.4 ms | 8.7 / 51.1 / 82.0 ms |
+| `GET /routes/501/bunching` | 10.3 / 14.7 ms | 9.0 / 63.1 / 84.5 ms |
+| `GET /search?q=Kennedy` | 35.0 / 43.7 ms | 30.7 / 36.5 / 85.0 ms |
+| `GET /alerts?size=100` | 10.1 / 17.1 ms | 8.0 / 13.0 / 51.4 ms |
+
+Medians are about what they were. The **tails are several times longer for the endpoints that read live state**, up to about 100 ms at the 95th percentile. The likely
+reason is that a vehicle cycle uses the whole half-CPU for a few hundred milliseconds and a read arriving then has to wait for it; that agrees with the throttling count and
+was not isolated. For one client at a time this is comfortable. It is a result for one client and says nothing about many at once.
+
+### Test suites
+
+| Suite | Result | Time |
+| --- | --- | --- |
+| API, `./mvnw verify` (this machine, 13:38) | 920 tests in 80 classes, 0 failures, 0 skipped, no compiler warnings under `-Xlint:all` | 3 min |
+| Web unit, `pnpm test` | 716 tests in 49 files, all passing | 39 s |
+| Web end to end, `pnpm e2e` | 29 tests, desktop and phone projects, all passing | 2.9 to 3.8 min, over two runs |
+
+The API figure was taken before the last test classes were added; the final count is in the [README](../README.md#test-it).
+
+### Images and builds
+
+| | |
+| --- | --- |
+| API image, on disk | 610 MB (a Temurin JRE, the application jar of about 80 MB, and curl for the health check) |
+| Web image, on disk | 393 MB |
+| API image build after a change to its Dockerfile, Maven downloads included | 2 min 39 s |
+| API image rebuild and restart after a source change | 53 s |
+| Web image build | 58 s |
+| `docker compose --profile full up -d --build --wait` from empty volumes, build cache warm | 38.7 s until every service was healthy |
+
+### Storage after the run
+
+After the import and about 40 minutes of live ingestion the database was **751 MB**, holding 86,291 stored positions, 9,880 health samples and 260 bunching events. That
+is the same order as the figures in [history-and-reliability.md](history-and-reliability.md), whose warning about how quickly positions accumulate still stands: 14 days of
+them is what a volume has to be sized for.
+
+### Not measured
+
+Concurrent load of any kind on the read endpoints; more than 25 stream clients; a real network between a client and the API; production hardware; anything behind a load
+balancer; stability over more than the 45 minutes of this run; the web application's own rendering time.
 
 ---
 

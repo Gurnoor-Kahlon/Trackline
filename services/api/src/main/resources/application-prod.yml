@@ -5,8 +5,20 @@
 trackline:
   cors:
     allowed-origins: ${TRACKLINE_CORS_ALLOWED_ORIGINS}
+  gtfs:
+    static:
+      # The manual import endpoint is not registered here: it has no administrator to protect it. The command-line
+      # runner remains, and is how the schedule is loaded: `java -jar app.jar --import-gtfs`.
+      admin-endpoint: false
 
-# Kept on deliberately: Trackline's API is public and read-only, so a browsable
+server:
+  # Behind a load balancer, the address a connection comes from is the balancer's, so the live stream's limit of connections per
+  # address would count the whole site as one visitor and allow it 20 streams. `native` has Tomcat take the real address from
+  # X-Forwarded-For, but only from a proxy on a private address (its default list of trusted proxies), and from the right of the
+  # header, where the balancer put it, so a visitor cannot make up an address by sending the header themselves.
+  forward-headers-strategy: native
+
+# Kept on deliberately: Trackline's API is public, with accounts only for saved routes, so a browsable
 # contract is a feature rather than exposure. Set explicitly so it is a decision
 # rather than a framework default.
 springdoc:
@@ -14,13 +26,6 @@ springdoc:
     enabled: true
   swagger-ui:
     enabled: true
-
-trackline:
-  gtfs:
-    static:
-      # No authentication exists yet, so the manual import endpoint is simply not
-      # registered here. The command-line runner remains available on the host.
-      admin-endpoint: false
 
 management:
   endpoints:

@@ -1,0 +1,105 @@
+name: Nightly
+
+# The two checks that depend on the real TTC, kept out of the build that gates a merge so that a publisher's bad night cannot
+# block anyone's work, and run daily so that a change in what the TTC publishes is found by us and not by a visitor.
+#
+#   contract   asserts that the live feeds still parse and still carry (and still lack) the fields the design rests on.
+#   rehearsal  builds the images, starts the whole stack, imports the real schedule, waits for live vehicles and runs the
+#              same smoke test as a deployment would. The from-scratch path, end to end, against the real feeds.
+
+on:
+  schedule:
+    # 09:15 UTC, which is the small hours in Toronto, when the feeds are quietest.
+    - cron: "15 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Live feed contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: services/api/pom.xml
+
+      - name: Run the tests tagged live
+        run: sh ./mvnw -B -ntp test -Dgroups=live -DexcludedGroups= -DfailIfNoTests=false
+
+      - name: Keep the reports when something failed
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: contract-reports
+          path: services/api/target/surefire-reports
+          retention-days: 14
+
+  rehearsal:
+    name: From-scratch rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      POSTGRES_PORT: "56432"
+      REDIS_PORT: "56379"
+      WEB_ORIGIN: http://localhost:3000
+      PUBLIC_API_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Generate throwaway secrets
+        run: |
+          pg="$(openssl rand -hex 16)"
+          jwt="$(openssl rand -base64 48)"
+          echo "::add-mask::$pg"
+          echo "::add-mask::$jwt"
+          echo "POSTGRES_PASSWORD=$pg" >> "$GITHUB_ENV"
+          echo "TRACKLINE_AUTH_JWT_SECRET=$jwt" >> "$GITHUB_ENV"
+
+      - name: Build and start the stack
+        run: docker compose --profile full up -d --build --wait --wait-timeout 240
+
+      # The pollers are switched off for this one-off process: it would otherwise poll the feeds beside the running API for
+      # as long as the import takes, and the API holds the only licence to do that.
+      - name: Import the TTC schedule
+        run: |
+          docker compose --profile full run --rm \
+            -e TRACKLINE_GTFS_REALTIME_ENABLED=false -e TRACKLINE_HISTORY_ENABLED=false \
+            api --import-gtfs
+
+      # The running API polls the feeds already; give it the time of a few cycles to hold a fleet.
+      - name: Wait for live vehicles
+        run: |
+          for attempt in $(seq 1 30); do
+            tracked="$(curl --silent http://localhost:8080/api/v1/network/status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).data.vehiclesTracked)}catch{console.log(0)}})')"
+            echo "attempt $attempt: $tracked vehicles"
+            [ "$tracked" -gt 0 ] && exit 0
+            sleep 10
+          done
+          echo "no vehicles after five minutes" >&2
+          exit 1
+
+      - name: Smoke test
+        run: node scripts/smoke.mjs --api http://localhost:8080 --web http://localhost:3000
+
+      - name: Show the logs if something failed
+        if: failure()
+        run: docker compose --profile full logs --no-color --tail 300
+
+      - name: Stop
+        if: always()
+        run: docker compose --profile full down --volumes

@@ -8,10 +8,10 @@ import { Sheet } from "@/components/ui/Sheet";
 /**
  * Opens search.
  *
- * Search itself needs the imported network, which does not exist yet, so the
- * panel states that plainly instead of presenting an input that silently returns
- * nothing. The affordance and its keyboard shortcut are built now because they
- * belong to the shell; the query goes in when there is something to query.
+ * The API can search routes, stops and stations, but nothing here is connected to it, so the panel says
+ * so plainly and points at the one place a route can be found, instead of presenting an input that
+ * silently returns nothing. The affordance and its keyboard shortcut belong to the shell and are built;
+ * the query goes in when the search is.
  */
 export function SearchTrigger() {
   const [open, setOpen] = useState(false);
@@ -51,8 +51,8 @@ export function SearchTrigger() {
 
       <Sheet open={open} onClose={() => setOpen(false)} title="Search">
         <EmptyState
-          title="Search is not available yet"
-          description="It will cover routes, stops and stations once the TTC schedule data has been imported."
+          title="Search is not built yet"
+          description="The API can search routes, stops and stations, but this box is not connected to it. To find a route, use the filter on the Map page."
         />
       </Sheet>
     </>

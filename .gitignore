@@ -21,6 +21,8 @@ playwright-report/
 test-results/
 blob-report/
 .playwright/
+# The end-to-end stack's process ids and the logs of what it ran, written while the tests run.
+apps/web/e2e/.stack/
 
 # Downloaded GTFS feeds and captured feed snapshots (large; never committed.
 # Trimmed fixtures used by tests live under src/test/resources and are committed.)

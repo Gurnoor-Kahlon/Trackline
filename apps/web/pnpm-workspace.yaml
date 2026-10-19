@@ -1,2 +1,7 @@
 allowBuilds:
   unrs-resolver: true
+
+# source-map-js below 1.2.2 can be made to spin the event loop by a crafted source map (GHSA, found by pnpm audit). It is only reached
+# through Tailwind, PostCSS and jsdom, at build and test time, but the fix is a patch release and costs nothing.
+overrides:
+  source-map-js: 1.2.2

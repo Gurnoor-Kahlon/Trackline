@@ -54,7 +54,7 @@ describe("SearchTrigger", () => {
     expect(screen.getByRole("heading", { name: "Search" })).toBeInTheDocument();
   });
 
-  it("says plainly that search is not available yet", async () => {
+  it("says plainly that search is not built yet, and where a route can be found", async () => {
     const user = userEvent.setup();
     render(<SearchTrigger />);
 
@@ -62,7 +62,8 @@ describe("SearchTrigger", () => {
 
     // An input that silently returns nothing would imply the feature works and
     // that Toronto has no matching routes.
-    expect(screen.getByText(/Search is not available yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Search is not built yet/)).toBeInTheDocument();
+    expect(screen.getByText(/use the filter on the Map page/)).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 

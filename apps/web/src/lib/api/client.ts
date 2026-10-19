@@ -11,7 +11,21 @@ import type { ApiEnvelope, ApiProblem } from "@/lib/api/types";
 
 const DEFAULT_BASE_URL = "http://localhost:8080";
 
+/**
+ * Where the API is, from where this code is running.
+ *
+ * A browser reaches it at a public address, which is baked into the page at build time. The web application's own server,
+ * rendering a page or relaying a sign-in, may be on a private network where that address means something else: inside a
+ * container, "localhost" is the container itself. So on the server `API_INTERNAL_URL`, read at runtime, takes precedence,
+ * and without it the public address is used, which is right wherever the two are the same, as on a developer's machine.
+ */
 export function apiBaseUrl(): string {
+  if (typeof window === "undefined") {
+    const internal = process.env.API_INTERNAL_URL;
+    if (internal !== undefined && internal !== "") {
+      return internal;
+    }
+  }
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_BASE_URL;
 }
 

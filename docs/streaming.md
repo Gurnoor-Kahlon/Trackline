@@ -130,6 +130,15 @@ Over a cap the response is `429` with `Retry-After: 5`. Responses carry
 `Cache-Control: no-cache` and `X-Accel-Buffering: no`, so a reverse proxy streams
 them instead of buffering until the connection closes.
 
+The per-address limit counts the address a connection comes from, which behind a load balancer is the balancer's, so the whole
+site would share one allowance. The production profile therefore sets `server.forward-headers-strategy: native`: Tomcat takes the
+visitor's address from `X-Forwarded-For`, but only when the connection arrives from a proxy on a private address, and from the right of
+the header, where the balancer put it, so a visitor cannot choose their own address by sending the header. Against the real server over
+HTTP, `ForwardedClientAddressIntegrationTest` shows visitors named by a trusted proxy being counted separately, one visitor still being
+limited, a made-up leading address being ignored, and a connection with no forwarded address being counted against where it came from.
+What the test cannot show is an actual load balancer: that the balancer's address falls within Tomcat's trusted private ranges and that it
+appends to the header as documented are readings of its documentation (see [deployment.md](deployment.md#what-was-not-verified)).
+
 A full replay ring of 1,500-vehicle events holds about 8-9 MB of heap. It is capped
 by event count, not bytes, so a fleet several times larger would cost several times
 that; the figure and its date are in [performance.md](performance.md).

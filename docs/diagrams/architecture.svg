@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" role="img" aria-labelledby="title desc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <title id="title">Trackline architecture</title>
+  <desc id="desc">The TTC's real-time feeds and the open-data schedule are read by a Spring Boot API. It keeps the schedule, geometry, history and accounts in PostgreSQL with PostGIS and live state in Redis, analyses vehicle spacing, and serves a Next.js application and its browser over REST and Server-Sent Events.</desc>
+  <style>
+    :root { --bg: #ffffff; --panel: #f4f5f7; --box: #ffffff; --line: #8a919c; --ink: #1c2026; --muted: #5b6370; --accent: #0b6bcb; --live: #1a7f4b; --store: #7a4ab8; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #14171b; --panel: #1d2127; --box: #262b32; --line: #7d8591; --ink: #e8eaed; --muted: #a2a9b4; --accent: #5aa7ff; --live: #4cc38a; --store: #b690f0; }
+    }
+    .bg { fill: var(--bg); }
+    .panel { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+    .box { fill: var(--box); stroke: var(--line); stroke-width: 1.25; }
+    .store { fill: var(--box); stroke: var(--store); stroke-width: 2; }
+    .web { fill: var(--box); stroke: var(--accent); stroke-width: 2; }
+    .ext { fill: var(--box); stroke: var(--line); stroke-width: 1.25; stroke-dasharray: 5 4; }
+    text { fill: var(--ink); font-size: 14px; }
+    .h { font-weight: 650; font-size: 15px; }
+    .s { fill: var(--muted); font-size: 12.5px; }
+    .t { fill: var(--muted); font-size: 12.5px; font-style: italic; }
+    .edge { stroke: var(--line); stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+    .live { stroke: var(--live); stroke-width: 2; fill: none; marker-end: url(#arrowLive); }
+    .tick { stroke: var(--store); stroke-width: 1.6; fill: none; }
+    .bus { stroke: var(--store); stroke-width: 1.6; fill: none; marker-end: url(#arrowStore); }
+    .key { fill: var(--muted); font-size: 12.5px; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--line)"/></marker>
+    <marker id="arrowLive" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--live)"/></marker>
+    <marker id="arrowStore" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--store)"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1000" height="640"/>
+
+  <!-- Outside -->
+  <text class="h" x="20" y="34">Outside</text>
+  <rect class="ext" x="20" y="60" width="200" height="104" rx="8"/>
+  <text class="h" x="36" y="88">TTC GTFS-Realtime</text>
+  <text class="s" x="36" y="108">bustime.ttc.ca</text>
+  <text class="s" x="36" y="128">vehicles · trip updates · alerts</text>
+  <text class="s" x="36" y="148">protobuf, about every 20 s</text>
+
+  <rect class="ext" x="20" y="300" width="200" height="104" rx="8"/>
+  <text class="h" x="36" y="328">Toronto Open Data</text>
+  <text class="s" x="36" y="348">TTC Routes and Schedules</text>
+  <text class="s" x="36" y="368">GTFS static ZIP, 36 MB</text>
+  <text class="s" x="36" y="388">republished monthly</text>
+
+  <!-- The API -->
+  <rect class="panel" x="236" y="20" width="486" height="440" rx="12"/>
+  <text class="h" x="254" y="46">Trackline API</text>
+  <text class="s" x="358" y="46">Spring Boot 3.5 · Java 21 · one instance</text>
+
+  <rect class="box" x="276" y="66" width="194" height="92" rx="8"/>
+  <text class="h" x="290" y="92">Ingestion</text>
+  <text class="s" x="290" y="112">poll · validate · normalise</text>
+  <text class="s" x="290" y="130">single-flight, 10 / 20 / 60 s</text>
+  <text class="s" x="290" y="148">each cycle in ingestion_runs</text>
+
+  <rect class="box" x="276" y="184" width="194" height="76" rx="8"/>
+  <text class="h" x="290" y="210">Accounts</text>
+  <text class="s" x="290" y="230">BCrypt · 15 min access token</text>
+  <text class="s" x="290" y="248">rotating refresh · favourites</text>
+
+  <rect class="box" x="276" y="300" width="194" height="104" rx="8"/>
+  <text class="h" x="290" y="326">Static import</text>
+  <text class="s" x="290" y="346">stream the ZIP · COPY</text>
+  <text class="s" x="290" y="364">one transaction, then derive</text>
+  <text class="s" x="290" y="382">shapes · stations · headways</text>
+
+  <rect class="box" x="500" y="66" width="200" height="144" rx="8"/>
+  <text class="h" x="514" y="92">Analytics</text>
+  <text class="s" x="514" y="112">place each vehicle on its</text>
+  <text class="s" x="514" y="128">route (PostGIS) · direction</text>
+  <text class="s" x="514" y="148">route health · bunching</text>
+  <text class="s" x="514" y="166">hourly history, retention</text>
+  <text class="t" x="514" y="194">spacing, not delay</text>
+
+  <rect class="box" x="500" y="240" width="200" height="164" rx="8"/>
+  <text class="h" x="514" y="266">REST and SSE</text>
+  <text class="s" x="514" y="286">/api/v1 read endpoints</text>
+  <text class="s" x="514" y="304">every answer says its age,</text>
+  <text class="s" x="514" y="322">whether it is stale, degraded,</text>
+  <text class="s" x="514" y="340">and where it came from</text>
+  <text class="s" x="514" y="364">/stream/vehicles: a snapshot,</text>
+  <text class="s" x="514" y="382">then deltas, Last-Event-ID replay</text>
+
+  <!-- State -->
+  <text class="h" x="276" y="500">State</text>
+  <rect class="store" x="236" y="512" width="220" height="104" rx="8"/>
+  <text class="h" x="250" y="538">PostgreSQL 16 + PostGIS</text>
+  <text class="s" x="250" y="558">source of truth: schedule, geometry,</text>
+  <text class="s" x="250" y="576">history, alerts, accounts</text>
+  <text class="s" x="250" y="594">Flyway migrations V1 to V11</text>
+
+  <rect class="store" x="470" y="512" width="252" height="104" rx="8"/>
+  <text class="h" x="484" y="538">Redis 7</text>
+  <text class="s" x="484" y="558">live state only, written each cycle, with TTLs</text>
+  <text class="s" x="484" y="576">never the only copy of anything</text>
+  <text class="s" x="484" y="594">if it is down, reads degrade, none fail</text>
+
+  <!-- Web -->
+  <text class="h" x="760" y="34">Web</text>
+  <rect class="web" x="760" y="60" width="220" height="150" rx="8"/>
+  <text class="h" x="776" y="88">Next.js 16 · React 19</text>
+  <text class="s" x="776" y="108">server components, typed client</text>
+  <text class="s" x="776" y="128">/api/auth/* handlers keep the</text>
+  <text class="s" x="776" y="146">refresh token in an HttpOnly</text>
+  <text class="s" x="776" y="164">cookie the page cannot read</text>
+
+  <rect class="web" x="760" y="260" width="220" height="144" rx="8"/>
+  <text class="h" x="776" y="288">Browser</text>
+  <text class="s" x="776" y="308">MapLibre map, OpenFreeMap tiles</text>
+  <text class="s" x="776" y="326">EventSource: live vehicles, eased</text>
+  <text class="s" x="776" y="344">between real reports, never drawn</text>
+  <text class="s" x="776" y="362">ahead of the latest one</text>
+  <text class="s" x="776" y="380">a list beside every map action</text>
+
+  <!-- Outside to the API -->
+  <path class="edge" d="M220,100 H276"/>
+  <text class="t" x="232" y="92">poll</text>
+  <path class="edge" d="M220,330 H251 M261,330 H276"/>
+  <text class="t" x="226" y="320">ZIP</text>
+
+  <!-- Inside the API -->
+  <path class="edge" d="M470,100 H500"/>
+
+  <!-- To PostgreSQL: one line down the left margin, with a short tick into each box -->
+  <path class="tick" d="M256,140 H276 M256,222 H276 M256,380 H276"/>
+  <path class="bus" d="M256,140 V512"/>
+
+  <!-- To and from Redis: one line down the gap between the columns -->
+  <path class="tick" d="M485,170 H500 M485,380 H500"/>
+  <path class="bus" d="M485,170 V512"/>
+
+  <!-- To the web -->
+  <path class="edge" d="M700,262 H740 V150 H760"/>
+  <text class="t" x="733" y="236" transform="rotate(-90 733 236)">server-side reads</text>
+  <path class="edge" d="M700,320 H760"/>
+  <text class="t" x="716" y="312">JSON</text>
+  <path class="live" d="M700,360 H760"/>
+  <text class="t" x="716" y="378">SSE</text>
+  <path class="edge" d="M870,210 V260"/>
+  <text class="t" x="878" y="240">pages</text>
+
+  <!-- Key -->
+  <g transform="translate(760 460)">
+    <path class="edge" d="M0,10 H34"/><text class="key" x="44" y="14">request and response</text>
+    <path class="live" d="M0,36 H34"/><text class="key" x="44" y="40">live: the event stream (SSE)</text>
+    <path class="bus" d="M0,62 H34"/><text class="key" x="44" y="66">to a store, reading and writing</text>
+    <rect class="ext" x="0" y="82" width="34" height="14" rx="3"/><text class="key" x="44" y="94">not ours</text>
+  </g>
+</svg>

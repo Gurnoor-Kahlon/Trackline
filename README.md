@@ -2,435 +2,269 @@
 
 **See Toronto move.**
 
-Trackline is a real-time Toronto transit intelligence platform. It ingests the
-TTC's public GTFS Static and GTFS-Realtime feeds and turns them into live and
-historical transit intelligence: live vehicles, arrivals, service alerts, vehicle
-spacing, bunching detection, and route health.
+Trackline is a real-time transit intelligence platform for Toronto. It reads the TTC's public GTFS and GTFS-Realtime feeds and
+turns them into things the feeds do not say on their own: where every bus and streetcar is along its route, whether a route's
+vehicles are evenly spaced or running in a pack with a gap behind them, and how steady a route has been over days and weeks.
 
-> **Status: in development.** This README grows with the project. Sections are
-> added only once the functionality behind them actually works, and every number
-> published here is measured — never estimated.
+![The live map on 2026-10-19, with the Queen streetcar (501) drawn from the TTC's own schedule geometry and its vehicles moving along it. The chip reads: Live, updated 1s ago, 1,635 vehicles on 172 routes, 9 alerts.](docs/images/map-live.jpg)
 
----
+*A real capture, from this repository's containers running against the live TTC feeds, 2026-10-19, at a narrow window width.*
 
-## Current state
+- **Live map.** Every vehicle the TTC publishes (about 1,600 on a weekday afternoon), streamed to the browser, eased between real
+  reports and never drawn ahead of the latest one. A chip says how old the data is, and says so plainly when the feed goes quiet
+  or the connection drops.
+- **Route health.** Each route is judged on how evenly its vehicles are spaced, with a stated confidence, reason codes and the
+  figures behind the verdict. It measures spacing, not lateness, because the TTC publishes no delay.
+- **Bunching.** Vehicles running together are reported only when a service gap has opened elsewhere on the route, because a dense
+  but evenly spaced route makes nobody wait longer.
+- **Reliability over time.** Health is recorded every minute and summarised by the hour, so a route's reliability by hour and weekday
+  can be shown. It declines to answer until enough has been recorded to say.
+- **Service alerts,** with a lifecycle Trackline observes itself, because the feed publishes no start or end time.
+- **Accounts,** only for saving routes and stops. Every page and read endpoint works without one.
 
-Local infrastructure (PostgreSQL + PostGIS, Redis) runs via Docker Compose. The
-Spring Boot API runs, migrates its schema with Flyway on startup, and serves
-`GET /api/v1/network/status`. It also polls the TTC's three GTFS-Realtime feeds on
-a schedule, validating and deduplicating vehicle positions into a partitioned
-observation table, and serves them live from a Redis-backed cache. Service alerts are
-stored with a lifecycle Trackline observes itself, because the feed publishes no start
-or end time, and are served from `GET /api/v1/alerts`. The TTC schedule feed
-can be imported: one command loads the whole network — 236 routes, 9,409 stops,
-138,036 trips and 4,357,307 scheduled calls — into PostgreSQL, then derives what
-the feed does not provide: 1,571 route linestrings, 108 stations clustered from
-platform stops, and 20,945 scheduled headway entries. Nothing reads that data over
-the API yet, but the schedule half of it is queryable: routes, their geometry and
-stops, stop detail, proximity search and text search all return real TTC data.
-Each stored vehicle reading also carries where that vehicle is along its route and
-which way it is going, derived from its position (see
-[docs/route-progress.md](docs/route-progress.md)). From those placements each cycle
-judges how evenly every route's vehicles are spaced, against the timetable where the
-imported schedule covers the day, and serves a verdict with its reasons and the figures
-behind it (see [docs/route-health.md](docs/route-health.md)). Packs of vehicles running together while a gap opens elsewhere are found and recorded as events
-(see [docs/bunching-detection.md](docs/bunching-detection.md)). Route health is recorded once a minute and
-summarised by the hour, old history is trimmed on a schedule, and a route's reliability over a past window is
-served only once enough has been recorded to say (see [docs/history-and-reliability.md](docs/history-and-reliability.md)).
-An account lets a person save routes and stops; every page and read endpoint still works without one (see
-[docs/authentication.md](docs/authentication.md)).
+Nothing here is estimated or mocked. Where the data does not support a claim, Trackline says so on screen instead of drawing one:
+a subway line shows "Not published" (the TTC publishes no subway vehicle positions), a route with too few vehicles is `UNKNOWN`, and a
+reliability chart is withheld until it has the observations behind it.
 
-The Next.js application renders the shell and design system: header, navigation,
-search affordance, light and dark themes, and the route, status, freshness, card,
-sheet, skeleton, empty and error primitives. The home page reads the API: the
-network's counts and their age, how many routes are unevenly spaced and which, and the
-newest service alerts, each saying what it measured and how old it is. `/alerts` lists every alert
-with filters by mode and route, and `/map` does call the API: it draws any of the 236 routes on a
-MapLibre basemap from the agency's own schedule geometry, with the stops that
-route serves, filters by mode and name, and a list beside the map that offers
-every interaction the map does. Live vehicles move on it: the API streams them over
-Server-Sent Events, and the page draws each as an arrow facing its heading, coloured
-by its route, easing between real reports and never drawing a marker ahead of the
-latest one. A chip on the map says how old the data is, and says so plainly when the
-connection drops or the feed goes quiet (see [docs/streaming.md](docs/streaming.md)).
+## How it fits together
 
-## Planned stack
+![Architecture diagram](docs/diagrams/architecture.svg)
+
+An API (Spring Boot, Java 21) ingests the feeds, analyses them and serves them over REST and Server-Sent Events. A web application
+(Next.js, TypeScript) renders them. PostgreSQL with PostGIS holds the schedule, route geometry, history and accounts; Redis holds the live
+picture and can be lost without losing anything durable. [docs/architecture.md](docs/architecture.md) explains each part, one cycle of
+ingestion end to end, what happens when each part fails, and where the design is thinner than it looks.
 
 | Area | Choice |
 | --- | --- |
-| Backend | Java 21, Spring Boot 3.5, Maven |
-| Persistence | PostgreSQL 16 + PostGIS (source of truth, history) |
-| Live state | Redis 7 (ephemeral, TTL'd) |
+| Backend | Java 21, Spring Boot 3.5, Maven; Flyway migrations, Hibernate set to validate only |
+| Persistence | PostgreSQL 16 with PostGIS and `pg_trgm`: source of truth and history |
+| Live state | Redis 7: ephemeral, rewritten each cycle, with a three-tier fallback when it is down |
 | Realtime transport | Server-Sent Events |
-| Frontend | Next.js (App Router), TypeScript, Tailwind CSS |
-| Mapping | MapLibre GL JS, OpenFreeMap tiles |
-| Testing | JUnit 5, Testcontainers, Vitest, Playwright |
-| Infrastructure | Docker Compose locally; AWS ECS/RDS + Vercel in production |
+| Frontend | Next.js 16 (App Router), React 19, TypeScript (strict), Tailwind CSS 4 |
+| Mapping | MapLibre GL JS with OpenFreeMap tiles |
+| Testing | JUnit 5, Testcontainers, WireMock, Vitest, Playwright |
+| Delivery | Docker (multi-stage, non-root images), GitHub Actions; ECS Fargate and Vercel as the deployment target (not carried out) |
 
-## Data sources
+## What the data forced
 
-The TTC feeds were inspected directly rather than assumed from documentation, and
-several findings shaped the architecture — most importantly that realtime
-`trip_id` cannot be joined to static GTFS. See **[docs/data-sources.md](docs/data-sources.md)**.
+The feeds were inspected directly before any design was fixed, and what they contain, and lack, shaped the architecture. The full
+account is in [docs/data-sources.md](docs/data-sources.md); the consequences are these.
 
-## Local development
+- **Realtime and static data cannot be joined on `trip_id`.** On the real feeds almost no vehicle's `trip_id` exists in the static
+  schedule, and a `stop_id` matches little more than half the time. `route_id` matches every time, so the model is keyed on route and
+  geometry, and a vehicle is placed by projecting its position onto its route's shape (PostGIS `ST_LineLocatePoint`) instead of by walking
+  a trip.
+- **There is no direction in the realtime feed,** so it is inferred from the vehicle's heading against the shape's, falling back to how far
+  it has moved since it was last stored, and a vehicle that cannot be settled is `UNKNOWN` and left out of the analysis rather than guessed.
+- **There is no delay in the feed,** so route health cannot say "late". It is built on how evenly vehicles are spaced.
+- **There are no stations in the schedule,** so they are derived by clustering platform stops, and labelled as derived.
+- **Alerts carry no active period or severity,** so Trackline records when it first and last saw each alert.
 
-Requires Docker Desktop.
+## The two algorithms
+
+Both are plain, deterministic functions over a snapshot of vehicles with no framework and no clock, which is why they can be tested
+exhaustively. Both run on every vehicle cycle, from the same placements.
+
+**Route health** ([docs/route-health.md](docs/route-health.md)). For each direction of a route, the gaps between consecutive vehicles along
+the route are compared with the timetable's spacing for the hour. The measures are the coefficient of variation of the gaps, the
+largest gap against the expected one, and how many vehicles are running against how many the timetable has. The first rule that
+matches gives one of `EXCELLENT`, `NORMAL`, `UNSTABLE`, `MAJOR_DISRUPTION` or `UNKNOWN`, with a confidence, reason codes and the inputs. There is no
+0 to 100 score, because one would need weights the data cannot justify. The thresholds are a documented first judgement, not a calibration,
+and the document records what the first run against the live feed got wrong and how it was corrected.
+
+**Bunching** ([docs/bunching-detection.md](docs/bunching-detection.md)). Vehicles in one direction are sorted by distance along the route. A
+pack is two or more vehicles each close behind the last, and it is reported only if some other gap on that direction is far larger than
+expected. Both halves are required, because a dense but evenly spaced route is not a problem. A bunch is recorded as one event for its
+whole life (opened when first seen, updated while it lasts, resolved after it has been gone for two analyses in a row), with times that are
+when Trackline saw it and not when it formed.
+
+## Run it
+
+You need Docker. Everything below runs from the repository root.
 
 ```bash
 cp .env.example .env
 ```
 
-Set `POSTGRES_PASSWORD` in `.env`, then start the infrastructure:
+Edit `.env`: set `POSTGRES_PASSWORD`, and set `TRACKLINE_AUTH_JWT_SECRET` to a long random value (`openssl rand -base64 48`). The API
+refuses to start without it, because a signing key anyone can read would make every token forgeable.
 
 ```bash
-docker compose up -d
+docker compose --profile full up -d --build
 ```
 
-Verify PostGIS is available:
+That builds the API and web images and starts PostgreSQL, Redis, the API (under the production profile) and the web application. Then load
+the schedule once. The two settings stop this one-off process from polling the feeds beside the running API:
 
 ```bash
-docker compose exec postgres psql -U trackline -d trackline -c "SELECT postgis_version();"
+docker compose --profile full run --rm \
+  -e TRACKLINE_GTFS_REALTIME_ENABLED=false -e TRACKLINE_HISTORY_ENABLED=false \
+  api --import-gtfs
 ```
 
-Verify Redis is reachable:
+Open <http://localhost:3000>. The API is on <http://localhost:8080> (`/api-docs/ui` for its OpenAPI documentation). To check a running
+stack, `node scripts/smoke.mjs --api http://localhost:8080 --web http://localhost:3000` runs the same fifteen checks a deployment would.
+
+To stop it, `docker compose --profile full down` (add `-v` to discard the database).
+
+## Develop it
+
+For fast reloads, run only the stores in containers and the two applications natively.
 
 ```bash
-docker compose exec redis redis-cli PING
+docker compose up -d                    # PostgreSQL and Redis only
 ```
 
-Stop the infrastructure (data is preserved in the `postgres-data` volume):
+PostgreSQL and Redis are published on **56432** and **56379**, not their usual ports, so that a PostgreSQL or Redis installed natively
+(including inside a WSL distribution, which Windows relays to `localhost`) cannot shadow the container's. That failure is quiet and
+confusing, because connections succeed against the wrong server. Both ports come from `.env` and feed the published port and the API's
+connection together.
 
-```bash
-docker compose down
-```
-
-To discard the database entirely, add `-v`.
-
-### API
-
-The API needs the database, so start Compose first. It reads its connection
-settings from the same environment variables, which are not exported into your
-shell automatically:
+**API** (Java 21):
 
 ```bash
 cd services/api && set -a && . ../../.env && set +a && ./mvnw spring-boot:run
 ```
 
-In PowerShell:
+In PowerShell, load `.env` first:
 
 ```powershell
 Get-Content ..\..\.env | Where-Object { $_ -match '=' -and $_ -notmatch '^#' } | ForEach-Object { $p = $_.Split('=',2); [Environment]::SetEnvironmentVariable($p[0].Trim(), $p[1].Trim()) }; .\mvnw spring-boot:run
 ```
 
-It listens on 8080 with the `local` profile by default. Flyway applies any
-pending migrations at startup and the schema is never generated from the
-entities — Hibernate only validates that the two agree.
+It listens on 8080 with the `local` profile and migrates the schema at start. Load the schedule with `--import-gtfs` as an argument
+(`./mvnw spring-boot:run -Dspring-boot.run.arguments=--import-gtfs`), or, while it runs under the `local` profile, `curl -X POST
+http://localhost:8080/api/v1/admin/gtfs/import`. That endpoint exists only where `trackline.gtfs.static.admin-endpoint` is true and is
+off in the production profile, because nothing could protect it.
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/v1/network/status` | Network-wide live status |
-| `GET /api/v1/routes` | List routes, filterable by mode and name |
-| `GET /api/v1/routes/{id}` | A route and its directions |
-| `GET /api/v1/routes/{id}/shape` | Route geometry as GeoJSON, optionally simplified |
-| `GET /api/v1/routes/{id}/stops` | Stops in order along the route |
-| `GET /api/v1/stops/{id}` | A stop and the routes that call there |
-| `GET /api/v1/stops/nearby` | Stops near a point, nearest first |
-| `GET /api/v1/search` | Routes, stops and stations by name or number |
-| `GET /api/v1/vehicles` | Live vehicles, filterable by route or bounding box |
-| `GET /api/v1/routes/{id}/vehicles` | Live vehicles working one route |
-| `GET /actuator/health` | Liveness and readiness |
-| `GET /api-docs` | OpenAPI 3.1 document |
-| `GET /api-docs/ui` | Swagger UI |
-
-Every list endpoint caps its page size, radius and result count, and a request
-over a cap is a `400` naming the offending parameter rather than a server error.
-
-Run the tests. Integration tests start their own PostGIS container through
-Testcontainers, so Docker must be running but Compose does not have to be:
-
-```bash
-cd services/api && ./mvnw verify
-```
-
-#### Response shape
-
-Responses carrying feed-derived data are wrapped in an envelope whose `meta`
-block states the data's age, staleness and origin, so a client never has to
-assume a payload is current:
-
-```json
-{
-  "data": { "vehiclesTracked": 0, "routesReporting": 0, "activeAlerts": 0 },
-  "meta": {
-    "generatedAt": "2026-09-27T22:17:42Z",
-    "feedTimestamp": null,
-    "ageSeconds": null,
-    "stale": true,
-    "degraded": false,
-    "source": "NO_DATA"
-  }
-}
-```
-
-`source: "NO_DATA"` is how a client distinguishes "nothing is running" from
-"nothing has been measured yet". Unknown values are null, never zero-filled.
-
-Errors are RFC 7807 problem details (`application/problem+json`) and never
-include a stack trace or exception type; unexpected failures carry an `errorId`
-that appears in the logs.
-
-### Web
+**Web:**
 
 ```bash
 cd apps/web && corepack pnpm install && corepack pnpm dev
 ```
 
-It serves on 3000. The home page needs nothing else running; `/map` reads routes
-and geometry from the API, so Compose, the API and an imported schedule feed all
-need to be up for it to show anything other than its error state.
+It serves on 3000 and reads the API at `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8080`). pnpm comes with Node through
+Corepack, so nothing is installed globally. `pnpm dev` and `pnpm build` first copy MapLibre's web worker into `public/vendor/`, because MapLibre
+finds it through `import.meta.url`, which a bundler rewrites to a path where it does not exist, and the map then renders nothing and logs only
+"Worker failed to load"; the copy is made from the installed version and is not committed.
 
-| Command | Purpose |
+### The API in brief
+
+Every list endpoint caps its page size, radius and result count, and a request over a cap is a `400` naming the offending parameter.
+Errors are RFC 7807 problem details with no stack trace. Responses carrying feed-derived data are wrapped in an envelope that states their
+age and origin:
+
+```json
+{
+  "data": { "vehiclesTracked": 1574, "routesReporting": 168, "activeAlerts": 12 },
+  "meta": {
+    "generatedAt": "2026-10-19T17:33:22Z",
+    "feedTimestamp": "2026-10-19T17:32:45Z",
+    "ageSeconds": 37,
+    "stale": false,
+    "degraded": false,
+    "source": "LIVE"
+  }
+}
+```
+
+`source` is `LIVE` (the shared Redis cache), `CACHED` (this instance's own copy, because Redis was unreachable), `DB_FALLBACK`
+(rebuilt from stored positions, the stalest), `STORED` or `STATIC` (read from the database), or `NO_DATA` (nothing ingested yet, which is not
+the same as no vehicles running). `CACHED` and `DB_FALLBACK` also set `degraded`. Unknown values are `null`, never zero-filled.
+
+| Endpoint | Purpose |
 | --- | --- |
-| `pnpm dev` | Development server |
-| `pnpm build` | Production build |
-| `pnpm lint` | ESLint, including the jsx-a11y rules |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` | Vitest component and unit tests |
+| `GET /api/v1/network/status` | Vehicles tracked, routes reporting, alerts, and the age of the feed |
+| `GET /api/v1/routes`, `/routes/{id}`, `/routes/{id}/shape`, `/routes/{id}/stops` | The schedule: routes, geometry (GeoJSON, optionally simplified), stops in order |
+| `GET /api/v1/stops/{id}`, `/stops/nearby` | A stop and the routes that call there; stops near a point, nearest first |
+| `GET /api/v1/search` | Routes, stops and stations by name or number |
+| `GET /api/v1/vehicles`, `/routes/{id}/vehicles` | Live vehicles, by route or bounding box |
+| `GET /api/v1/routes/{id}/health`, `/health/routes` | Route health verdicts with their reasons and figures |
+| `GET /api/v1/routes/{id}/bunching` | The spacing of a route's vehicles and any bunching, now and recently |
+| `GET /api/v1/routes/{id}/reliability` | Reliability over a window, or `INSUFFICIENT_HISTORY` saying how much there is and how much is needed |
+| `GET /api/v1/alerts`, `/alerts/{id}` | Service alerts, active or ended |
+| `GET /api/v1/stream/vehicles`, `/stream/network` | Server-Sent Events: a snapshot, then only what changed |
+| `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`; `GET /auth/me` | Accounts |
+| `GET`, `PUT`, `DELETE /api/v1/favourites/...` | Saved routes and stops, for the signed-in person only |
+| `GET /actuator/health` | Liveness and readiness (the only actuator endpoint in production) |
 
-pnpm is provided by Corepack, which ships with Node, so no global install is
-needed — `corepack pnpm <command>` works anywhere in `apps/web`.
+The documents for each area: [streaming](docs/streaming.md), [route progress](docs/route-progress.md), [alerts](docs/alerts.md),
+[history and reliability](docs/history-and-reliability.md), [authentication](docs/authentication.md).
 
-Configuration is documented in `apps/web/.env.example`: the API's base URL and
-the two basemap style URLs. Every one has a working default, so a `.env.local` is
-only needed to change one. All three are `NEXT_PUBLIC_`, so they are compiled into
-the browser bundle — nothing secret belongs there.
+## Test it
 
-`pnpm dev` and `pnpm build` first copy MapLibre's web worker into
-`public/vendor/`. MapLibre locates that worker from `import.meta.url`, which a
-bundler rewrites to a chunk path where the file does not exist; the map then
-renders nothing and logs only "Worker failed to load". The copy is regenerated
-from whichever version is installed and is not committed, so it cannot drift from
-`package.json`. See `apps/web/scripts/sync-maplibre-worker.mjs`.
+| Suite | Command | Count | What it covers |
+| --- | --- | ---: | --- |
+| API | `cd services/api && ./mvnw verify` | 925 tests in 81 classes | Pure algorithm tests against real captured feeds; PostgreSQL/PostGIS and Redis in Testcontainers (migrations from scratch, spatial queries, the Redis-down path, the production profile); WireMock pipeline tests for malformed, empty, stale and failing feeds; the stream; authentication and cross-user denial |
+| Web, unit | `cd apps/web && corepack pnpm test` | 716 tests in 49 files | Components and every loading, empty, error, stale and degraded state; the live-store reducer; interpolation never extrapolating |
+| Web, end to end | `cd apps/web && corepack pnpm e2e` | 29 tests, desktop and phone | Real Chrome against the real stack |
+| Live contract | `cd services/api && ./mvnw test -Dgroups=live -DexcludedGroups=` | run by the nightly workflow | That the real TTC feeds still parse and still carry, and still lack, the fields the design rests on |
 
-Design tokens live in `src/app/globals.css`. Surfaces stay near-neutral so the
-only saturated colour on screen carries meaning: a route's own GTFS colour, or a
-service status. Status is never encoded in colour alone — each state also has a
-distinct glyph and a text label.
+Counts as of 2026-10-19, from the last full run (the API build took about three minutes on the laptop above, with the compiler's warnings as errors). The end-to-end suite runs the **packaged API jar**, a real PostgreSQL and Redis, and the real importer, in a
+dedicated database; the only thing replaced is the TTC, by a small server that speaks the same protobuf (`apps/web/e2e/fixture-feed`). It exercises
+ingestion, placement, health, bunching, the stream and sign-in for real, and nothing it asserts depends on the TTC being up or on the time of day. Build
+the jar first (`cd services/api && ./mvnw -DskipTests package`); the stack starts itself, and `node e2e/stack.ts up` starts it by hand for a look.
 
-### Importing the TTC schedule
+The fixtures behind the deterministic tests are real captures of the TTC's feeds, trimmed. The tests that reach the real feeds are tagged
+`live`, excluded from the normal build on purpose, and run nightly.
 
-The schedule feed is loaded on demand, not at startup — it is a monthly operator
-task, and importing on boot would re-download 36 MB on every restart and make
-startup depend on a third party being reachable.
+**Continuous integration** (`.github/workflows`) runs the API build with the compiler's warnings as errors, the web lint, types, unit tests,
+build and a dependency audit, the end-to-end suite, both image builds and a start of the whole stack, and CodeQL for both languages. The nightly
+workflow runs the live contract tests and a from-scratch rehearsal that imports the real schedule and runs the smoke test. These were checked
+statically (actionlint) and every command in them was run locally, but **they have not been run by GitHub**, which could not be done from the
+machine they were written on.
 
-```bash
-cd services/api && set -a && . ../../.env && set +a && ./mvnw spring-boot:run -Dspring-boot.run.arguments=--import-gtfs
+## Measured
+
+Every figure below is dated, comes from a run described in [docs/performance.md](docs/performance.md), and is for one laptop (13th-gen Intel Core i7-1355U,
+10 cores, 15.7 GB, Windows 11, Docker Desktop 29.2.0), not a server.
+
+| What | Measurement | Date |
+| --- | --- | --- |
+| Static schedule import, empty database, in the production container | **129.7 s** for 4,943,365 rows: 236 routes, 9,409 stops, 138,036 trips, 438,263 shape points, 4,357,307 stop times; then 1,571 route shapes, 108 stations and 20,945 scheduled headways derived. Re-importing an unchanged archive: 2.5 s | 2026-10-19 |
+| One vehicle cycle (fetch, validate, place, store, analyse, publish), about 1,590 vehicles | median 508 ms, p95 620 ms (11 successful cycles, quiet machine). The feed itself publishes about every 20 s | 2026-10-19 |
+| Read endpoints, one client at a time (200 requests each, 14 endpoints) | median 8 to 19 ms and p95 13 to 32 ms, except search at 35 / 44 ms; the 346 KB whole-fleet snapshot 15.7 / 32.4 ms | 2026-10-19 |
+| Redis hit ratio over that benchmark (1,320 live-state reads) | 1,320 hits, 0 misses | 2026-10-19 |
+| Live stream, 25 clients, 1,500-vehicle fleet, 30 cycles | 750 of 750 deliveries; publish to receipt median 10.5 to 11.1 ms, p95 20.9 to 24.2 ms | 2026-10-19 |
+| Production images | API 610 MB, web 393 MB on disk | 2026-10-19 |
+| The API in a container limited to 0.5 vCPU and 1 GiB | works; peak memory 413 MB of 1 GiB; medians barely move and tails grow (see performance.md) | 2026-10-19 |
+
+## Deploying it
+
+The target is the API on AWS ECS Fargate with RDS and Redis, and the web application on Vercel. **This has not been done.** It needs cloud
+accounts and credentials that are the owner's to use, so [docs/deployment.md](docs/deployment.md) is a runbook for doing it, with a smoke test
+(`scripts/smoke.mjs`) to prove it worked, and a plain list of what was verified on a laptop and what could only be read from documentation.
+
+## What is not built
+
+Deliberate omissions, so nobody has to find them:
+
+- **Arrivals, stop pages and route pages.** There is no `/stops/{id}/arrivals` endpoint and no per-stop or per-route page: a route's detail is
+  the panel on the map, and a stop is selected from its route. The realtime feeds' stop matching (little more than half) would limit arrivals.
+- **A search box that searches.** `GET /api/v1/search` exists and is tested; the header's field is not wired to it yet. The map filters its own list.
+- **Horizontal scaling.** Exactly one API instance may run, because the single-flight guard is in-process and the planned PostgreSQL advisory lock
+  was not built. See [docs/architecture.md](docs/architecture.md).
+- **A circuit breaker on Redis.** The API degrades correctly when Redis is down, but every request waits out Redis's 500 ms timeout first.
+- **Rate limiting.** Beyond the stream's connection caps (500 in total, 20 per address) the public API has no per-client limit. Put one in front.
+- **Delay and on-time performance,** which the TTC does not publish.
+- **Subway vehicles,** which the TTC does not publish.
+
+Follow-ups worth doing next: a commute watch that tells a person when their saved route turns unstable; arrivals at stops where the stop ids
+match; the advisory lock and a Redis circuit breaker; calibrating the health thresholds against the distribution the history now collects.
+
+## Layout
+
 ```
-
-The archive is located through Toronto's open-data catalogue rather than a pinned
-URL, downloaded, hashed, and loaded into an empty network inside one transaction.
-If anything fails, the transaction rolls back and the previously active network is
-untouched. If the published archive's SHA-256 matches the active version, nothing
-is reloaded.
-
-While the API is running, the same import can be triggered with:
-
-```bash
-curl -X POST http://localhost:8080/api/v1/admin/gtfs/import
-```
-
-That endpoint is registered only when `trackline.gtfs.static.admin-endpoint` is
-true. It is off in the production profile, because no authentication exists yet
-and re-downloading the feed and rewriting the network is not something an
-anonymous caller should be able to do.
-
-The import also derives three things the TTC feed does not publish — route
-geometry, stations, and scheduled headways — inside the same transaction, so an
-active network always has the geometry needed to place a vehicle on a route. The
-rules behind each derivation, and the measurements that motivated them, are in
-[docs/data-sources.md](docs/data-sources.md).
-
-Measured timings for a real import are in [docs/performance.md](docs/performance.md).
-
-### Realtime ingestion
-
-The three GTFS-Realtime feeds are polled automatically whenever the API is running
-— vehicles every 10 s, trip updates every 20 s, alerts every 60 s. Those intervals
-come from measuring how often the TTC actually publishes (about every 20 s), not
-from preference; polling faster than a publisher updates buys nothing.
-
-Every cycle is recorded in `ingestion_runs`, including the ones that find nothing
-new, so a stalled publisher and a healthy quiet one stay distinguishable. A cycle
-that cannot parse its payload keeps the previous snapshot rather than replacing it
-with a partial one.
-
-Set `trackline.gtfs.realtime.enabled=false` to stop polling.
-
-### Placing vehicles on their routes
-
-The feed publishes neither a direction nor a distance along the route, so both are
-derived. Each cycle projects every route-assigned vehicle onto the primary shape of
-its route, in one PostGIS statement for the whole fleet, and decides which of the
-route's two directions it is running from its reported heading, falling back to how
-far it has moved since its last stored reading. The result is stored beside the
-reading. A vehicle that cannot be placed says why — off-route, no route assigned,
-no shape, or direction genuinely unknown — instead of carrying a guessed value.
-
-The thresholds are in `application.yml` under `trackline.analytics.progress`, each
-set from a measurement. If projection fails, the cycle still stores its readings,
-unprojected. The algorithm, the measurements behind it, and what it cannot do are in
-[docs/route-progress.md](docs/route-progress.md).
-
-### Live state and degradation
-
-Each cycle publishes the vehicle snapshot to Redis, so a page view reads one cached
-document instead of querying Postgres for positions that change every ten seconds.
-
-Reads fall through three tiers, and every response says which one answered:
-
-| `meta.source` | Means |
-| --- | --- |
-| `LIVE` | the shared Redis cache |
-| `CACHED` | this instance's own copy, because Redis was unreachable |
-| `DB_FALLBACK` | reconstructed from stored observations — the stalest of the three |
-| `NO_DATA` | nothing has been ingested, which is not the same as no vehicles running |
-
-`CACHED` and `DB_FALLBACK` also set `meta.degraded`. Losing Redis costs freshness
-and speed, never availability: the API keeps answering, ingestion keeps recording
-history, and `/actuator/health` deliberately stays `UP`, because an instance that
-can still serve should not be pulled out of a load balancer. Measurements for the
-healthy and degraded paths are in [docs/performance.md](docs/performance.md).
-
-The feeds are a third party's output, so there is a contract test that checks they
-still match what Trackline was built on — including the fields they do *not*
-carry, since the absence of direction, delay and alert periods is what forces
-several design decisions. It is excluded from the normal build and run on purpose:
-
-```bash
-cd services/api && ./mvnw test -Dgroups=live -DexcludedGroups= -DfailIfNoTests=false
-```
-
-### Live streaming
-
-`GET /api/v1/stream/vehicles` sends a snapshot of the fleet when a client connects
-and then only what changed each cycle, filtered on the server by route or bounding
-box so a page watching one route is not sent the whole network. `/stream/network`
-sends the network-wide counts. A heartbeat every 15 s keeps proxies from closing
-an idle connection, and a client that reconnects with `Last-Event-ID` is replayed
-what it missed only if the replay can be proved complete; otherwise it is sent a
-fresh snapshot, never a replay that might have a gap.
-
-```bash
-curl -N "http://localhost:8080/api/v1/stream/vehicles?routes=501"
-```
-
-Connections are capped (500 in total, 20 per address), and a slow client is
-dropped rather than allowed to hold memory or delay the others. The protocol, the
-limits and the places it differs from the original plan are in
-[docs/streaming.md](docs/streaming.md); measurements with 25 simultaneous clients
-are in [docs/performance.md](docs/performance.md).
-
-### Bunching
-
-Vehicles running in a pack are only reported as bunched while a large gap opens elsewhere on the
-same direction, because a dense route that is evenly spaced makes nobody wait longer. A bunch is
-recorded as one event for its whole life, opened when first seen, updated while it lasts and
-resolved when it has been gone for two analyses in a row, with times that are when Trackline saw it
-rather than when it formed or broke up. The route panel draws each direction's vehicles along the
-route with any pack marked. See [docs/bunching-detection.md](docs/bunching-detection.md).
-
-```bash
-curl "http://localhost:8080/api/v1/routes/501/bunching"
-```
-
-### Accounts and favourites
-
-Register and sign in to save routes and stops, which then appear on the home page with how each route is running. An account
-is only for that: nothing else needs one. Passwords are stored as BCrypt hashes. A sign-in gives a 15-minute access token, kept
-in the page's memory, and a single-use refresh token, kept in a cookie the page's scripts cannot read; reusing a refresh token
-ends the whole sign-in. Whose favourites they are comes from the token and nowhere else, so no address names another person.
-The API refuses to start without `TRACKLINE_AUTH_JWT_SECRET` (see `.env.example`). See
-[docs/authentication.md](docs/authentication.md).
-
-```bash
-curl -X POST localhost:8080/api/v1/auth/register -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.test","password":"a-long-passphrase"}'
-curl localhost:8080/api/v1/favourites -H "Authorization: Bearer $ACCESS_TOKEN"
-```
-
-### History and reliability
-
-About once a minute the verdict for every route direction is recorded with the figures behind it, and finished
-hours are summarised as counts and sums. `GET /api/v1/routes/{id}/reliability` turns those into how steady a route
-has been over the last day, week, month or quarter, and by hour of the Toronto day and day of the week. It declines
-to answer until enough is behind a figure: below the minimum the response is `INSUFFICIENT_HISTORY` with how much there
-is and how much is needed, and the route panel shows that instead of a chart. Stored positions, health samples,
-bunching events, alerts and ingestion runs are each trimmed after a set time, so storage stays bounded. See
-[docs/history-and-reliability.md](docs/history-and-reliability.md).
-
-```bash
-curl "http://localhost:8080/api/v1/routes/501/reliability?window=7d"
-```
-
-### Route health
-
-Each vehicle cycle measures how evenly every route's vehicles are spaced along it, per
-direction, and compares that with the timetable's spacing for the hour. The result is one
-of `EXCELLENT`, `NORMAL`, `UNSTABLE`, `MAJOR_DISRUPTION` or `UNKNOWN`, with a confidence,
-reason codes and the figures behind it. It measures spacing, not delay: the TTC publishes
-no delay, so nothing here means late or on time.
-
-```bash
-curl "http://localhost:8080/api/v1/routes/501/health"
-curl "http://localhost:8080/api/v1/health/routes?state=UNSTABLE&state=MAJOR_DISRUPTION"
-```
-
-`UNKNOWN` is a stated answer with a reason (too few vehicles, or no positions published, as
-on the subway), never a blank. The thresholds are documented starting judgements, not a
-calibration, and say so in [docs/route-health.md](docs/route-health.md), which also records
-what the first run against the live feed got wrong and how it was corrected.
-
-### Service alerts
-
-The alerts feed is read every minute and each alert is stored as one continuous stretch
-of being present in the feed: when Trackline first saw it, last saw it, and the first
-cycle that did not contain it. Those are observations, so they bound when an alert began
-and ended and are never presented as the moment it did. An alert that disappears and
-returns is a new stretch.
-
-Two measured facts shape what is served. Every alert on the live feed states
-`UNKNOWN_CAUSE` and `UNKNOWN_EFFECT`, so nothing is grouped or ranked by either, and the
-TTC publishes no severity. And the publisher cuts each alert's header off mid-word at about
-31 characters, so the interface shows the description. An alert naming a route the imported
-schedule does not have is kept and shown as published, not dropped. See
-[docs/alerts.md](docs/alerts.md).
-
-```bash
-curl "http://localhost:8080/api/v1/alerts?route=501"
-curl "http://localhost:8080/api/v1/alerts?active=false"   # alerts that have left the feed
-```
-
-### Database
-
-Migrations live in `services/api/src/main/resources/db/migration` and are the only
-thing that changes the schema. `spring.jpa.hibernate.ddl-auto` is `validate`, so a
-mismatch between an entity and a migration fails the build rather than silently
-altering a table.
-
-The containers publish Postgres on **56432** and Redis on **56379**, not on their
-default ports, so neither can be shadowed by a service installed natively on the
-machine — including one inside a WSL distro, which Windows relays to `localhost`.
-That failure mode is quiet and confusing, because connections succeed against the
-wrong server. Both ports come from `.env` and feed the published port and the
-application's connection settings together.
-
-To inspect the schema:
-
-```bash
-docker compose exec postgres psql -U trackline -d trackline -c "\dt"
+apps/web/            the Next.js application, its tests, and e2e/ (Playwright and the fixture feed)
+services/api/        the Spring Boot application, its migrations and tests
+docs/                architecture, data sources, each algorithm, performance, deployment
+scripts/             smoke.mjs (post-deploy check), bench.mjs (endpoint latency), streams-per-address-check.mjs
+.github/             workflows and Dependabot configuration
+docker-compose.yml   the stores, and with --profile full the API and web
 ```
 
 ## Licence
 
-TTC data is published under the Open Government Licence – Toronto.
+TTC data is published under the Open Government Licence – Toronto. Basemap tiles are from OpenFreeMap, with data from OpenStreetMap
+contributors and tiles by OpenMapTiles.

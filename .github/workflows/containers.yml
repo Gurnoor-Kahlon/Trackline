@@ -1,0 +1,80 @@
+name: Containers
+
+# Builds both production images from a clean checkout and starts the whole stack from them, which is the one thing no other
+# workflow does: it catches a Dockerfile that only works on the machine it was written on. It stops short of importing the
+# TTC schedule, because that would make this workflow depend on a third party being up; the nightly workflow does that.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/api/**"
+      - "apps/web/**"
+      - "docker-compose.yml"
+      - ".github/workflows/containers.yml"
+  pull_request:
+    paths:
+      - "services/api/**"
+      - "apps/web/**"
+      - "docker-compose.yml"
+      - ".github/workflows/containers.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: containers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-start:
+    name: Build the images and start them
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Meaningless outside this job, generated here so that no value is committed. The first two are masked in the log.
+      POSTGRES_PORT: "56432"
+      REDIS_PORT: "56379"
+      WEB_ORIGIN: http://localhost:3000
+      PUBLIC_API_URL: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Generate throwaway secrets
+        run: |
+          pg="$(openssl rand -hex 16)"
+          jwt="$(openssl rand -base64 48)"
+          echo "::add-mask::$pg"
+          echo "::add-mask::$jwt"
+          echo "POSTGRES_PASSWORD=$pg" >> "$GITHUB_ENV"
+          echo "TRACKLINE_AUTH_JWT_SECRET=$jwt" >> "$GITHUB_ENV"
+
+      - name: Build both images
+        run: docker compose --profile full build
+
+      # --wait returns when every service with a healthcheck is healthy, and fails if one becomes unhealthy: the API's
+      # healthcheck is its own /actuator/health under the production profile, and the web image's is a request to its home page.
+      - name: Start the stack
+        run: docker compose --profile full up -d --wait --wait-timeout 240
+
+      - name: The API answers, with nothing imported yet
+        run: |
+          curl --fail --silent http://localhost:8080/actuator/health
+          echo
+          curl --fail --silent http://localhost:8080/api/v1/network/status
+          echo
+
+      - name: The web application answers
+        run: curl --fail --silent --output /dev/null --write-out '%{http_code}\n' http://localhost:3000/
+
+      - name: What the images weigh
+        run: docker image ls --format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}' | grep -E 'REPOSITORY|trackline'
+
+      - name: Show the logs if something failed
+        if: failure()
+        run: docker compose --profile full logs --no-color --tail 200
+
+      - name: Stop
+        if: always()
+        run: docker compose --profile full down --volumes

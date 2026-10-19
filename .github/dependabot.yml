@@ -1,0 +1,44 @@
+# Proposes updates to everything the project depends on, weekly, one pull request per ecosystem group so that a review is
+# a decision about one thing. Security updates are proposed as soon as an advisory is published, regardless of this schedule.
+version: 2
+
+updates:
+  - package-ecosystem: maven
+    directory: /services/api
+    schedule:
+      interval: weekly
+    groups:
+      spring:
+        patterns: ["org.springframework*"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    groups:
+      next-and-react:
+        patterns: ["next", "eslint-config-next", "react", "react-dom"]
+      testing:
+        patterns: ["vitest", "@vitest/*", "@testing-library/*", "jsdom", "@playwright/test"]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /services/api
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

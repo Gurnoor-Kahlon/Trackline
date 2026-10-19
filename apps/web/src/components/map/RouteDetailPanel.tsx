@@ -167,7 +167,10 @@ export function RouteDetailPanel({
 
       {alerts === undefined ? null : <RouteAlerts result={alerts} />}
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      {/* A floor, not only a share of what is left: with the health, spacing, history and alerts sections above it the list
+          was given no height at all on a laptop screen, and the stops, the reason for the panel, could not be seen. The
+          panel scrolls instead. */}
+      <div className="flex min-h-72 flex-1 flex-col">
         <h3 className="mb-1 text-sm font-semibold tracking-wide text-ink-muted uppercase">Stops</h3>
         {loading ? (
           <SkeletonLines lines={6} label="Loading stops" />

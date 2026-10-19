@@ -23,6 +23,11 @@ const config = [
       "no-console": ["warn", { allow: ["warn", "error"] }],
     },
   },
+  {
+    // The end-to-end stack and the fixture feed are command-line programs: what they print is their interface.
+    files: ["e2e/**"],
+    rules: { "no-console": "off" },
+  },
 ];
 
 export default config;
