@@ -74,6 +74,15 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
     private ca.trackline.api.analytics.bunching.BunchingEventService bunchingEvents;
 
     @Autowired
+    private ca.trackline.api.analytics.history.HealthSampler sampler;
+
+    @Autowired
+    private ca.trackline.api.analytics.history.HealthRollup rollup;
+
+    @Autowired
+    private ca.trackline.api.persistence.query.ReliabilityQueryRepository reliabilityRows;
+
+    @Autowired
     private StringRedisTemplate redis;
 
     @Autowired
@@ -125,8 +134,10 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
         clear(jdbc);
         jdbc.execute("TRUNCATE service_alerts CASCADE");
         jdbc.execute("TRUNCATE bunching_events");
+        jdbc.execute("TRUNCATE route_health_samples, route_headway_hourly");
         // Packs waiting to be confirmed are held in memory across tests, so one test's would count towards the next.
         bunchingEvents.forgetPending();
+        sampler.forget();
         redis.delete(RouteHealthStore.KEY);
         redis.delete(RouteHealthStore.SPACING_KEY);
         store.forget();
@@ -137,6 +148,7 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
         Mockito.reset(healthService);
         clear(jdbc);
         jdbc.execute("TRUNCATE bunching_events");
+        jdbc.execute("TRUNCATE route_health_samples, route_headway_hourly");
         redis.delete(RouteHealthStore.KEY);
         redis.delete(RouteHealthStore.SPACING_KEY);
         store.forget();
@@ -639,5 +651,111 @@ class RouteHealthIngestionIntegrationTest extends PostgisIntegrationTest {
         } finally {
             jdbc.execute("ALTER TABLE bunching_events_away RENAME TO bunching_events");
         }
+    }
+
+    // --- history ---------------------------------------------------------------------------------------------
+
+    private List<java.util.Map<String, Object>> samples() {
+        return jdbc.queryForList(
+                "SELECT * FROM route_health_samples WHERE route_id = 'ew' ORDER BY sampled_at");
+    }
+
+    @Test
+    void aSuccessfulCycleRecordsTheDirectionsVerdictAndTheFiguresBehindIt() {
+        straightRoute();
+
+        cycle(BUNCHED);
+
+        var recorded = samples();
+        assertThat(recorded).singleElement().satisfies(row -> {
+            DirectionHealth live = east(published());
+            assertThat(row.get("direction_id")).isEqualTo(0);
+            // What was stored is what was published, from the same analysis.
+            assertThat(row.get("state")).isEqualTo(live.state().name());
+            assertThat(row.get("confidence")).isEqualTo(live.confidence().name());
+            assertThat(row.get("vehicles")).isEqualTo(live.metrics().vehicles());
+            assertThat(row.get("bunching_clusters")).isEqualTo(1);
+            assertThat(row.get("reason_codes").toString()).contains("BUNCHING");
+        });
+    }
+
+    @Test
+    void everyCycleFarEnoughApartAddsASampleOfWhatTheRoadWasLike() {
+        straightRoute();
+
+        // The test advances the clock by more than the sample interval each cycle.
+        cycle(BUNCHED);
+        cycle(EVEN);
+        cycle(EVEN);
+
+        assertThat(samples()).extracting(row -> row.get("bunching_clusters"))
+                .containsExactly(1, 0, 0);
+    }
+
+    @Test
+    void aSuspectCycleIsNotRecordedBecauseItsVerdictsCameFromAFeedThatWasNotTrusted() {
+        straightRoute();
+        cycle(BUNCHED);
+
+        serve(syntheticFleet(List.of(new Placement("spare-0", null, 0))));
+        IngestionCycleResult suspect = cycleService.runCycle(RealtimeFeed.VEHICLE_POSITIONS);
+
+        assertThat(suspect.status()).isEqualTo(IngestionRunStatus.SUSPECT);
+        assertThat(samples()).hasSize(1);
+    }
+
+    @Test
+    void aFailureRecordingASampleCostsTheSampleAndNothingElseAndIsTriedAgainAtOnce() {
+        straightRoute();
+        jdbc.execute("ALTER TABLE route_health_samples RENAME TO route_health_samples_away");
+        try {
+            serve(syntheticFleet(fleet(BUNCHED)));
+
+            IngestionCycleResult result = cycleService.runCycle(RealtimeFeed.VEHICLE_POSITIONS);
+
+            // The readings and the verdicts are already stored and published; only the history failed.
+            assertThat(result.status()).isEqualTo(IngestionRunStatus.SUCCESS);
+            assertThat(result.stored()).isPositive();
+            assertThat(store.read().snapshot()).isNotNull();
+        } finally {
+            jdbc.execute("ALTER TABLE route_health_samples_away RENAME TO route_health_samples");
+        }
+
+        // Nothing was recorded, so the next cycle records, and does not wait out an interval it did not use.
+        cycle(BUNCHED);
+        assertThat(samples()).hasSize(1);
+    }
+
+    @Test
+    void theSamplesBecomeReliabilityThroughTheHourlySummary() {
+        straightRoute();
+        cycle(BUNCHED);
+        cycle(EVEN);
+        cycle(EVEN);
+
+        // Long after, so every hour the samples fall in has finished.
+        int written = rollup.rollUp(Instant.parse("2027-06-01T00:00:00Z"));
+        var rows = reliabilityRows.findForRoute(ROUTE, Instant.EPOCH);
+
+        assertThat(written).isPositive();
+        assertThat(rows.stream().mapToInt(row -> row.samples()).sum()).isEqualTo(3);
+        assertThat(rows.stream().mapToInt(row -> row.bunchingSamples()).sum()).isEqualTo(1);
+
+        // Three samples are not a reliability figure, and the shipped gate says so.
+        var shipped = new ca.trackline.api.analytics.history.ReliabilityCalculator(
+                new ca.trackline.api.analytics.history.HistoryProperties.Reliability(24, 20, 240, 60, 3, 2),
+                ZoneOffset.UTC);
+        assertThat(shipped.calculate(rows).reason())
+                .isEqualTo(ca.trackline.api.analytics.history.ReliabilityModels.InsufficientReason.TOO_FEW_HOURS);
+
+        // With the gate opened to one sample, the same rows give figures, so the chain from cycle to figure is whole.
+        var open = new ca.trackline.api.analytics.history.ReliabilityCalculator(
+                new ca.trackline.api.analytics.history.HistoryProperties.Reliability(1, 1, 1, 1, 1, 1),
+                ZoneOffset.UTC);
+        var result = open.calculate(rows);
+        assertThat(result.status())
+                .isEqualTo(ca.trackline.api.analytics.history.ReliabilityModels.ReliabilityStatus.AVAILABLE);
+        assertThat(result.summary().samples()).isEqualTo(3);
+        assertThat(result.summary().bunchingShare()).isCloseTo(1.0 / 3.0, within(1e-9));
     }
 }

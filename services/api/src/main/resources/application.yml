@@ -208,6 +208,35 @@ trackline:
       # passing at a stop. It is dated from its first sighting, so waiting loses no time.
       cycles-to-confirm: 3
 
+  # History: route health recorded over time, summarised by the hour, and trimmed (docs/history-and-reliability.md).
+  history:
+    # The hourly summary and the retention run on a schedule. Sampling rides on the ingestion cycle.
+    enabled: true
+    # The analysis runs about every 20 s and a verdict seldom changes between two runs. A minute keeps the
+    # largest table to about a third of what a row per cycle would cost.
+    sample-interval: 60s
+    rollup-interval: 10m
+    retention-interval: 6h
+    startup-delay: 2m
+    retention:
+      samples: 90d
+      # Longer than the samples it summarises, or dropping a partition would lose history.
+      hourly: 365d
+      observations: 14d
+      bunching-events: 180d
+      alerts: 180d
+      # Every stored position refers to its run, so the runs outlive the positions.
+      ingestion-runs: 30d
+    # What a reliability figure needs before it is shown. Round starting points, not fitted: the aim is that
+    # nothing is drawn from an afternoon.
+    reliability:
+      min-covered-hours: 24
+      min-samples-per-hour: 20
+      min-judged-samples: 240
+      min-cell-samples: 60
+      min-days-per-hour-cell: 3
+      min-days-per-weekday-cell: 2
+
 server:
   port: ${API_PORT:8080}
   error:

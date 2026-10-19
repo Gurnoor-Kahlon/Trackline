@@ -2,6 +2,7 @@ package ca.trackline.api;
 
 import ca.trackline.api.analytics.bunching.BunchingProperties;
 import ca.trackline.api.analytics.health.HealthProperties;
+import ca.trackline.api.analytics.history.HistoryProperties;
 import ca.trackline.api.analytics.progress.ProgressProperties;
 import ca.trackline.api.config.TracklineProperties;
 import ca.trackline.api.gtfs.realtime.RealtimeProperties;
@@ -18,7 +19,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @EnableConfigurationProperties({TracklineProperties.class, GtfsStaticProperties.class,
         RealtimeProperties.class, LiveStateProperties.class, ProgressProperties.class,
-        StreamProperties.class, HealthProperties.class, BunchingProperties.class})
+        StreamProperties.class, HealthProperties.class, BunchingProperties.class, HistoryProperties.class})
 public class TracklineApplication {
 
     public static void main(String[] args) {

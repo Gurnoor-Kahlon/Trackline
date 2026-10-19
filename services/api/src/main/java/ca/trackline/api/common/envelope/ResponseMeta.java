@@ -54,6 +54,14 @@ public record ResponseMeta(
         return new ResponseMeta(generatedAt, feedTimestamp, ageSeconds, stale, degraded, source);
     }
 
+    /**
+     * Meta for figures computed from stored history. They describe a past window, not a feed's current
+     * state, so there is no feed timestamp, and nothing about them goes stale in the way a live position does.
+     */
+    public static ResponseMeta stored(Instant generatedAt) {
+        return new ResponseMeta(generatedAt, null, null, false, false, DataSource.STORED);
+    }
+
     /** Meta for static GTFS data, which has no realtime freshness dimension. */
     public static ResponseMeta forStatic(Instant generatedAt) {
         return new ResponseMeta(generatedAt, null, null, false, false, DataSource.STATIC);

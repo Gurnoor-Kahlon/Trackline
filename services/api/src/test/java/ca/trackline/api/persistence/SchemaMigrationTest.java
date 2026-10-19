@@ -37,7 +37,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "6 vehicle observations",
                 "7 observation route progress",
                 "8 service alerts",
-                "9 bunching events");
+                "9 bunching events",
+                "10 history aggregates");
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
@@ -103,7 +104,7 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 SELECT table_name FROM information_schema.tables
                 WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
                   AND table_name NOT IN ('spatial_ref_sys', 'flyway_schema_history')
-                  AND table_name !~ '^vehicle_observations_[0-9]'
+                  AND table_name !~ '^(vehicle_observations|route_health_samples)_[0-9]'
                 ORDER BY table_name
                 """,
                 String.class);
@@ -114,6 +115,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "calendar_services",
                 "gtfs_feed_versions",
                 "ingestion_runs",
+                "route_headway_hourly",
+                "route_health_samples",
                 "route_scheduled_headways",
                 "route_shapes",
                 "routes",

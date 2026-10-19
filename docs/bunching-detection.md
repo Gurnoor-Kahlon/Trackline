@@ -147,7 +147,8 @@ list of positions under the picture. Beneath it are the recent events.
 - **A direction with no direction-assigned vehicles shows nothing**: vehicles that could not be placed are not in the
   strip, and are counted in the route's health.
 - **Resolution is detected a minute late**, and after a restart or gap in polling it is bounded by that gap.
-- **Events are kept indefinitely** until the retention work in milestone 16.
+- **Resolved events are kept for 180 days** and then deleted; an open one never is
+  ([history-and-reliability.md](history-and-reliability.md)).
 - The cut-points are uncalibrated.
 
 ## Measured on the live feed
@@ -173,7 +174,8 @@ once across 45 route-directions**, 66% of events reached `SEVERE` (201 of 306), 
 timetable spacing. A network where two thirds of the packs seen in a rush hour are severe is more likely to have
 cut-points that are too sensitive at rush hour than to be that unreliable, so **read the counts as what these
 thresholds find, not as how often TTC service bunches**. The first thing to do with a longer history is tune
-`close-ratio` and `service-gap-ratio` against it, which is the work of milestone 16's samples.
+`close-ratio` and `service-gap-ratio` against it. The history now exists (the recorded events, and the health samples
+that count bunches), but the tuning has not been done and still needs a view of which bunches were real.
 
 Not measured: how many of these a rider would agree with, and how the count varies across the day. Both windows were
 in the evening peak.

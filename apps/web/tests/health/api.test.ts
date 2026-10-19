@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchEnvelope } from "@/lib/api/client";
 import { fetchRouteBunching } from "@/lib/api/bunching";
 import { fetchHealthRoutes, fetchRouteHealth } from "@/lib/api/health";
+import { fetchRouteReliability } from "@/lib/api/reliability";
 
 vi.mock("@/lib/api/client", () => ({ fetchEnvelope: vi.fn() }));
 
@@ -52,5 +53,21 @@ describe("the health API client", () => {
     await fetchRouteBunching("501", controller.signal);
 
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/routes/501/bunching", { signal: controller.signal });
+  });
+
+  it("asks for a route's reliability over a window by its encoded id", async () => {
+    await fetchRouteReliability("501/odd id", 30);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/routes/501%2Fodd%20id/reliability?window=30d", {});
+  });
+
+  it("passes a cancellation signal through for reliability too", async () => {
+    const controller = new AbortController();
+
+    await fetchRouteReliability("501", 7, controller.signal);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/routes/501/reliability?window=7d", {
+      signal: controller.signal,
+    });
   });
 });

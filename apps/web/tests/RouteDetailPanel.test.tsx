@@ -2,8 +2,12 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { useRouteReliability } from "@/lib/health/useHealth";
+
 import { RouteDetailPanel } from "@/components/map/RouteDetailPanel";
 import type { RouteDetail, RouteStop } from "@/lib/api/types";
+
+vi.mock("@/lib/health/useHealth", () => ({ useRouteReliability: vi.fn(() => ({ status: "loading" })) }));
 
 const ROUTE: RouteDetail = {
   routeId: "501",
@@ -133,6 +137,22 @@ describe("RouteDetailPanel", () => {
 
     expect(screen.getByText("Not known")).toBeInTheDocument();
     expect(screen.queryByText("0.0 km")).not.toBeInTheDocument();
+  });
+
+  it("shows how steady the route has been only where the page asks for it", () => {
+    const { rerender } = render(<RouteDetailPanel {...BASE} route={ROUTE} />);
+    expect(screen.queryByRole("heading", { name: "How steady it has been" })).not.toBeInTheDocument();
+
+    rerender(<RouteDetailPanel {...BASE} route={ROUTE} showReliability />);
+
+    expect(screen.getByRole("heading", { name: "How steady it has been" })).toBeInTheDocument();
+    expect(vi.mocked(useRouteReliability)).toHaveBeenCalledWith("501", 7);
+  });
+
+  it("shows no history for a route with no published vehicles, since none is ever recorded", () => {
+    render(<RouteDetailPanel {...BASE} route={{ ...ROUTE, supportsRealtime: false }} showReliability />);
+
+    expect(screen.queryByRole("heading", { name: "How steady it has been" })).not.toBeInTheDocument();
   });
 
   it("states plainly that a subway route publishes no vehicles", () => {

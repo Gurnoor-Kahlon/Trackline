@@ -1,6 +1,7 @@
 "use client";
 
 import { RouteAlerts } from "@/components/alerts/RouteAlerts";
+import { ReliabilitySection } from "@/components/health/ReliabilitySection";
 import { RouteBunchingSection } from "@/components/health/RouteBunchingSection";
 import { RouteHealthSection } from "@/components/health/RouteHealthSection";
 import { Button } from "@/components/ui/Button";
@@ -36,6 +37,8 @@ type RouteDetailPanelProps = {
   health?: PolledResult<RouteHealth> | undefined;
   /** Where the route's vehicles are and which are bunched. Omitted where the page has none to give. */
   bunching?: PolledResult<RouteBunching> | undefined;
+  /** Whether to show how steady the route has been over time. Off where the page does not fetch history. */
+  showReliability?: boolean | undefined;
 };
 
 /** GTFS wheelchair_boarding, stated exactly as published and never inferred. */
@@ -66,6 +69,7 @@ export function RouteDetailPanel({
   alerts,
   health,
   bunching,
+  showReliability = false,
 }: RouteDetailPanelProps) {
   if (error !== null) {
     return <ErrorState title="Could not load this route" description={error} />;
@@ -149,6 +153,9 @@ export function RouteDetailPanel({
           headsign={(id) => route.directions.find((candidate) => candidate.directionId === id)?.headsign ?? null}
         />
       )}
+
+      {/* Only where vehicles are published: nothing is ever recorded for a subway line. */}
+      {showReliability && route.supportsRealtime ? <ReliabilitySection routeId={route.routeId} /> : null}
 
       {alerts === undefined ? null : <RouteAlerts result={alerts} />}
 

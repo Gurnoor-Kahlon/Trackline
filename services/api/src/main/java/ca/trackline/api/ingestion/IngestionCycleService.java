@@ -13,6 +13,7 @@ import ca.trackline.api.analytics.bunching.BunchingEventService;
 import ca.trackline.api.analytics.health.HealthAnalysisMetrics;
 import ca.trackline.api.analytics.health.RouteHealthService;
 import ca.trackline.api.analytics.health.RouteHealthService.AnalysisResult;
+import ca.trackline.api.analytics.history.HealthSampler;
 import ca.trackline.api.analytics.progress.ProgressMetrics;
 import ca.trackline.api.analytics.progress.RouteProgressProjector;
 import ca.trackline.api.analytics.progress.RouteProgressSnapshot;
@@ -60,6 +61,7 @@ public class IngestionCycleService {
     private final AlertLifecycleService alertLifecycle;
     private final RouteHealthService routeHealth;
     private final BunchingEventService bunchingEvents;
+    private final HealthSampler healthSampler;
     private final HealthAnalysisMetrics healthMetrics;
     private final IngestionRunRecorder runRecorder;
     private final IngestionMetrics metrics;
@@ -88,6 +90,7 @@ public class IngestionCycleService {
             AlertLifecycleService alertLifecycle,
             RouteHealthService routeHealth,
             BunchingEventService bunchingEvents,
+            HealthSampler healthSampler,
             HealthAnalysisMetrics healthMetrics,
             IngestionRunRecorder runRecorder,
             IngestionMetrics metrics,
@@ -105,6 +108,7 @@ public class IngestionCycleService {
         this.alertLifecycle = alertLifecycle;
         this.routeHealth = routeHealth;
         this.bunchingEvents = bunchingEvents;
+        this.healthSampler = healthSampler;
         this.healthMetrics = healthMetrics;
         this.runRecorder = runRecorder;
         this.metrics = metrics;
@@ -246,6 +250,7 @@ public class IngestionCycleService {
             return;
         }
         recordBunching(result, status);
+        recordHistory(result, status);
     }
 
     /**
@@ -265,6 +270,26 @@ public class IngestionCycleService {
         } catch (RuntimeException failure) {
             healthMetrics.recordFailure();
             log.warn("Could not record bunching events: {}", failure.toString());
+        }
+    }
+
+    /**
+     * Records the verdicts for the history that reliability is read from.
+     *
+     * <p>Only for a cycle trusted as a whole: a suspect cycle's verdicts were reached from a feed that
+     * was not believed, and recording them would put that into every figure derived afterwards. The cost
+     * is a gap in the history, which the figures count as missing and do not fill. A failure here costs
+     * the sample and nothing else.
+     */
+    private void recordHistory(AnalysisResult result, IngestionRunStatus status) {
+        if (status != IngestionRunStatus.SUCCESS) {
+            return;
+        }
+        try {
+            healthSampler.sample(result.health(), Instant.now(clock));
+        } catch (RuntimeException failure) {
+            healthMetrics.recordFailure();
+            log.warn("Could not record route health history: {}", failure.toString());
         }
     }
 

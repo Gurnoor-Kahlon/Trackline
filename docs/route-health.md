@@ -99,8 +99,10 @@ boundary belongs to the calmer band (the tests check both sides of every one).
 **These bands are a starting judgement, not a calibration.** They are round numbers that follow
 the conventional reading of headway variation, they are not fitted to anything, and there is no
 ground truth of known disruptions to fit them against. The measured outcome is in the last
-section, and re-tuning them against stored history is milestone 16's work. They are properties
-so doing so changes configuration, not code.
+section. Verdicts are now recorded over time ([history-and-reliability.md](history-and-reliability.md)),
+which gives re-tuning something to work from, but it has not been done: a distribution of verdicts shows what the
+bands find, not whether they are right, and there is still no ground truth of known disruptions. They are properties
+so re-tuning changes configuration, not code.
 
 ### Confidence
 
@@ -253,7 +255,8 @@ trip patterns. This is not tuned away here, because without known disruptions to
 any retuning would be fitting the answer to a number I chose, so the bands are left as the
 documented starting point and flagged. **Treat `UNSTABLE` and `MAJOR_DISRUPTION` as "spacing is
 uneven by these measures", not as confirmation of a service problem**, until the bands are
-calibrated against stored history in milestone 16. The explanation shown beside every verdict
+calibrated against something that says which disruptions were real. Stored history
+([history-and-reliability.md](history-and-reliability.md)) is the material for that, not the answer. The explanation shown beside every verdict
 states the figures, so a reader can judge for themselves.
 
 Not measured: daytime or weekend service, a real known disruption, or how verdicts persist over

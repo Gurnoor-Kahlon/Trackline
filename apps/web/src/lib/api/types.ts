@@ -317,3 +317,71 @@ export type RouteBunching = {
   events: BunchingEvent[];
   computedAt: string | null;
 };
+
+export type ReliabilityStatus = "AVAILABLE" | "INSUFFICIENT_HISTORY";
+
+/** Why there is not enough history, in the order the checks are made. */
+export type InsufficientReason = "NO_SAMPLES" | "TOO_FEW_HOURS" | "TOO_FEW_JUDGED_SAMPLES";
+
+/** The windows the API offers. */
+export type ReliabilityWindowDays = 1 | 7 | 30 | 90;
+
+/** What a figure needs before it is shown, as configured on the server. */
+export type ReliabilityNeeds = {
+  coveredHours: number;
+  samplesPerHour: number;
+  judgedSamples: number;
+  cellSamples: number;
+  daysPerHour: number;
+  daysPerWeekday: number;
+};
+
+export type ReliabilityCoverage = {
+  /** Hours with enough samples to describe them. */
+  hoursCovered: number;
+  /** Hours with some samples but too few, left out of every figure. */
+  hoursExcluded: number;
+  days: number;
+  samples: number;
+  judgedSamples: number;
+  firstHour: string | null;
+  lastHour: string | null;
+};
+
+/**
+ * What a set of samples shows. A sample is one route direction at one moment, so a route running
+ * both ways counts twice a minute. Shares are fractions; null means no sample could say, never zero.
+ */
+export type ReliabilityFigures = {
+  samples: number;
+  judged: number;
+  unjudged: number;
+  excellent: number;
+  normal: number;
+  unstable: number;
+  majorDisruption: number;
+  steadyShare: number | null;
+  variation: number | null;
+  gapRatio: number | null;
+  bunchingShare: number | null;
+};
+
+export type ReliabilityHour = { hour: number; days: number; figures: ReliabilityFigures };
+
+export type ReliabilityWeekday = { isoWeekday: number; days: number; figures: ReliabilityFigures };
+
+export type RouteReliability = {
+  routeId: string;
+  status: ReliabilityStatus;
+  reason: InsufficientReason | null;
+  windowDays: ReliabilityWindowDays;
+  from: string;
+  /** The end of the latest hour with a sample, which lags the present by up to an hour and a few minutes. */
+  through: string | null;
+  timeZone: string;
+  needs: ReliabilityNeeds;
+  coverage: ReliabilityCoverage;
+  summary: ReliabilityFigures | null;
+  byHour: ReliabilityHour[];
+  byWeekday: ReliabilityWeekday[];
+};

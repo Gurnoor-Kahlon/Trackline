@@ -160,7 +160,8 @@ table that has never held an alert is treated as unknown.
 - Resolution is detected one cycle late and bounded by the polling interval and outages.
 - Stop ids on alerts match the imported schedule less often than route ids (8 of 11 on the
   live feed). Unmatched stops are shown by id.
-- There is no retention yet: resolved alerts are kept indefinitely. Milestone 16 owns it.
+- Resolved alerts are kept for 180 days and then deleted with the routes and stops they named; one still in
+  force is never removed ([history-and-reliability.md](history-and-reliability.md)).
 - The text is the publisher's, shown as published. Some alerts state dates in their text
   ("back in service October 16, 2026"); nothing parses them, so they are not used as an
   end time.

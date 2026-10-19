@@ -2,7 +2,14 @@
 
 import { fetchRouteBunching } from "@/lib/api/bunching";
 import { fetchHealthRoutes, fetchRouteHealth } from "@/lib/api/health";
-import type { RouteBunching, RouteHealth, RouteHealthList } from "@/lib/api/types";
+import { fetchRouteReliability } from "@/lib/api/reliability";
+import type {
+  ReliabilityWindowDays,
+  RouteBunching,
+  RouteHealth,
+  RouteHealthList,
+  RouteReliability,
+} from "@/lib/api/types";
 import { usePolledEnvelope, type PolledResult } from "@/lib/polling/usePolledEnvelope";
 
 /**
@@ -32,6 +39,25 @@ export function useRouteBunching(routeId: string | null): PolledResult<RouteBunc
     (signal) => fetchRouteBunching(routeId ?? "", signal),
     `bunching:${routeId ?? ""}`,
     HEALTH_REFRESH_MS,
+    routeId !== null,
+  );
+}
+
+/**
+ * How often reliability is asked for again. It is built from hourly summaries that are rebuilt every ten
+ * minutes, so a faster poll would only fetch the same answer.
+ */
+export const RELIABILITY_REFRESH_MS = 5 * 60_000;
+
+/** How steady a route has been over a window; fetches nothing while no route is selected. */
+export function useRouteReliability(
+  routeId: string | null,
+  windowDays: ReliabilityWindowDays,
+): PolledResult<RouteReliability> {
+  return usePolledEnvelope(
+    (signal) => fetchRouteReliability(routeId ?? "", windowDays, signal),
+    `reliability:${routeId ?? ""}:${windowDays}`,
+    RELIABILITY_REFRESH_MS,
     routeId !== null,
   );
 }

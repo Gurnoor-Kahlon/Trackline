@@ -8,7 +8,7 @@ import { fetchRoute, fetchRouteShape, fetchRouteStops } from "@/lib/api/routes";
 import type { RouteDetail, RouteShape, RouteStop, RouteSummary } from "@/lib/api/types";
 import { LiveStore } from "@/lib/live/liveStore";
 import { useAlerts, type AlertsResult } from "@/lib/alerts/useAlerts";
-import { useRouteBunching, useRouteHealth } from "@/lib/health/useHealth";
+import { useRouteBunching, useRouteHealth, useRouteReliability } from "@/lib/health/useHealth";
 import { useLiveVehicles } from "@/lib/live/useLiveVehicles";
 
 import { snapshot as liveSnapshot, vehicle as liveVehicle } from "./live/helpers";
@@ -33,7 +33,11 @@ vi.mock("@/lib/live/useNetworkStatus", () => ({
 vi.mock("@/lib/alerts/useAlerts", () => ({ useAlerts: vi.fn() }));
 
 /** Health likewise: the page is shown any answer, and what it asks for is what is asserted. */
-vi.mock("@/lib/health/useHealth", () => ({ useRouteHealth: vi.fn(), useRouteBunching: vi.fn() }));
+vi.mock("@/lib/health/useHealth", () => ({
+  useRouteHealth: vi.fn(),
+  useRouteBunching: vi.fn(),
+  useRouteReliability: vi.fn(),
+}));
 
 /**
  * The map itself is replaced by a component that prints what it was handed.
@@ -162,6 +166,8 @@ beforeEach(() => {
   vi.mocked(useRouteHealth).mockReturnValue({ status: "loading" });
   vi.mocked(useRouteBunching).mockReset();
   vi.mocked(useRouteBunching).mockReturnValue({ status: "loading" });
+  vi.mocked(useRouteReliability).mockReset();
+  vi.mocked(useRouteReliability).mockReturnValue({ status: "loading" });
 });
 
 describe("MapExplorer", () => {
@@ -495,6 +501,27 @@ describe("MapExplorer live vehicles", () => {
       render(<MapExplorer routes={ROUTES} />);
 
       expect(screen.queryByRole("heading", { name: "Spacing along the route" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("history for the selected route", () => {
+    it("shows how steady the route has been once one is chosen", async () => {
+      const user = userEvent.setup();
+      vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+      vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+      vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+      render(<MapExplorer routes={ROUTES} />);
+
+      await user.click(filters().getByText("Queen"));
+
+      expect(await detailPanel().findByRole("heading", { name: "How steady it has been" })).toBeInTheDocument();
+      expect(vi.mocked(useRouteReliability)).toHaveBeenLastCalledWith("501", 7);
+    });
+
+    it("shows no history section before a route is chosen", () => {
+      render(<MapExplorer routes={ROUTES} />);
+
+      expect(screen.queryByRole("heading", { name: "How steady it has been" })).not.toBeInTheDocument();
     });
   });
 

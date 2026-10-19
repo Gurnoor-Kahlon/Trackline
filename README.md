@@ -34,7 +34,9 @@ which way it is going, derived from its position (see
 judges how evenly every route's vehicles are spaced, against the timetable where the
 imported schedule covers the day, and serves a verdict with its reasons and the figures
 behind it (see [docs/route-health.md](docs/route-health.md)). Packs of vehicles running together while a gap opens elsewhere are found and recorded as events
-(see [docs/bunching-detection.md](docs/bunching-detection.md)).
+(see [docs/bunching-detection.md](docs/bunching-detection.md)). Route health is recorded once a minute and
+summarised by the hour, old history is trimmed on a schedule, and a route's reliability over a past window is
+served only once enough has been recorded to say (see [docs/history-and-reliability.md](docs/history-and-reliability.md)).
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
@@ -338,6 +340,20 @@ route with any pack marked. See [docs/bunching-detection.md](docs/bunching-detec
 
 ```bash
 curl "http://localhost:8080/api/v1/routes/501/bunching"
+```
+
+### History and reliability
+
+About once a minute the verdict for every route direction is recorded with the figures behind it, and finished
+hours are summarised as counts and sums. `GET /api/v1/routes/{id}/reliability` turns those into how steady a route
+has been over the last day, week, month or quarter, and by hour of the Toronto day and day of the week. It declines
+to answer until enough is behind a figure: below the minimum the response is `INSUFFICIENT_HISTORY` with how much there
+is and how much is needed, and the route panel shows that instead of a chart. Stored positions, health samples,
+bunching events, alerts and ingestion runs are each trimmed after a set time, so storage stays bounded. See
+[docs/history-and-reliability.md](docs/history-and-reliability.md).
+
+```bash
+curl "http://localhost:8080/api/v1/routes/501/reliability?window=7d"
 ```
 
 ### Route health

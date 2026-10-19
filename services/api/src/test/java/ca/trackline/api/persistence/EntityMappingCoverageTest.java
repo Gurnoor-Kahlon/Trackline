@@ -33,7 +33,9 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
      * query directly. The two alert tables are written by set-based SQL that
      * reconciles a whole payload against what is stored and read by joined queries
      * into response shapes, so an entity over either would be unused code. The same is true of
-     * {@code bunching_events}, opened, continued and resolved by one reconciling statement per analysis.
+     * {@code bunching_events}, opened, continued and resolved by one reconciling statement per analysis, and of
+     * {@code route_health_samples} and {@code route_headway_hourly}: samples are appended in batches and summarised by
+     * one aggregating statement, and the summary is read into a calculation, so neither has a use for an entity.
      *
      * <p>Partitions of vehicle_observations are excluded by prefix rather than by
      * name, since they are created per day at runtime.
@@ -41,7 +43,7 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
     private static final Set<String> TABLES_WITHOUT_ENTITIES = Set.of(
             "spatial_ref_sys", "flyway_schema_history", "shape_points",
             "route_scheduled_headways", "vehicle_observations", "service_alerts", "service_alert_entities",
-            "bunching_events");
+            "bunching_events", "route_health_samples", "route_headway_hourly");
 
     @Autowired
     private EntityManager entityManager;
@@ -66,6 +68,7 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
         Set<String> expectedEntityTables = schemaTables.stream()
                 .filter(table -> !TABLES_WITHOUT_ENTITIES.contains(table))
                 .filter(table -> !table.startsWith("vehicle_observations_"))
+                .filter(table -> !table.startsWith("route_health_samples_"))
                 .collect(Collectors.toSet());
 
         assertThat(mappedTables)

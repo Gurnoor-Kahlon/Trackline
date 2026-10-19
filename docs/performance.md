@@ -372,7 +372,7 @@ include connection setup), before the verify run started:
 
 An alert read is two queries however many alerts a page holds: the page, then every route
 and stop it names in one statement. Not measured: a large history of resolved alerts, which
-is why retention matters (milestone 16), or any load beyond one client.
+is why retention matters (now in place, see the history section below), or any load beyond one client.
 
 ### Storage
 
@@ -433,4 +433,29 @@ document with one indexed query for the route's events (open ones, and those res
 slower than the health endpoints. Not measured: the Redis-down path, or more than one client.
 
 Storage: events are written once and updated in place, 306 rows over the 21-minute window in
-[bunching-detection.md](bunching-detection.md). They are kept indefinitely until the retention work in milestone 16.
+[bunching-detection.md](bunching-detection.md). Resolved ones are deleted after 180 days.
+
+## History and reliability
+
+**Measured 2026-10-18**, Sunday evening, 19:30 to 20:19 Toronto time, on the live feed, API from source on the same
+laptop as the database. The full account, with what it costs to keep and what the samples say, is in
+[history-and-reliability.md](history-and-reliability.md); these are the figures that bear on speed.
+
+| | |
+| --- | --- |
+| Recording a health sample (42 samples, 274 rows each on average) | mean **37 ms**, maximum 142 ms (the first, which creates the partitions) |
+| Vehicle cycles in the same run (99) | mean 945 ms, maximum 5.8 s (the first) |
+| Hourly summary of one finished hour (321 rows from 6,911 samples) | 14 ms, and 53 ms when rebuilt |
+| `GET /routes/501/reliability`, 25 requests, `INSUFFICIENT_HISTORY` path | min 16.4 ms, median 19.3 ms, max 28.0 ms, 659 bytes |
+
+A sample is written about once in every two or three cycles, so it adds roughly 15 ms to the average cycle; the figure is the write alone and
+the run is too short and too quiet to see it in the cycle total. The cycle mean here is the whole cycle (fetch, projection,
+analysis, storage) and is not comparable to the milestone 14 and 15 figures, which were taken at different hours with
+different vehicle counts.
+
+Storage is the larger finding. A stored position cost 353 bytes and a health sample 189, and at the rates seen the plan's 14 days
+of positions and 90 days of samples would hold about 19 GB between them (about 13.5 GB and 5.7 GB). That is an extrapolation
+from one quiet evening, and the page says so; it is not a measurement of a day, and it does not fit a 20 GB database.
+
+Not measured: the available path of the reliability endpoint over a full window, a trim that drops a partition under load
+(it was tested against held locks, not under ingestion), and anything over more than one hour of continuous running.

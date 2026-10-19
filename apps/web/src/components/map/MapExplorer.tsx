@@ -244,6 +244,7 @@ export function MapExplorer({ routes }: MapExplorerProps) {
       alerts={selectedRouteId === null ? undefined : routeAlerts}
       health={selectedRouteId === null ? undefined : routeHealth}
       bunching={selectedRouteId === null ? undefined : routeBunching}
+      showReliability
     />
   );
 
