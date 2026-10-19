@@ -1,6 +1,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 
+import { AccountMenu } from "@/components/auth/AccountMenu";
 import { SearchTrigger } from "@/components/shell/SearchTrigger";
 import { ThemeToggle } from "@/components/shell/ThemeToggle";
 
@@ -49,6 +50,7 @@ export function AppHeader() {
 
         <div className="flex flex-1 items-center justify-end gap-2">
           <SearchTrigger />
+          <AccountMenu />
           <div className="hidden sm:block">
             <ThemeToggle />
           </div>

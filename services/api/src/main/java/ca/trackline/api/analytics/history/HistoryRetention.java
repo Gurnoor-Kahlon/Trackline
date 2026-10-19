@@ -60,6 +60,7 @@ public class HistoryRetention {
             List<String> partitionsDropped,
             int bunchingEventsDeleted,
             int alertsDeleted,
+            int refreshTokensDeleted,
             int ingestionRunsDeleted,
             int hourlyRowsDeleted,
             List<String> failedSteps) {
@@ -88,6 +89,11 @@ public class HistoryRetention {
         int alerts = attempt("service_alerts", failed, () -> jdbc.update(
                 "DELETE FROM service_alerts WHERE resolved_at IS NOT NULL AND resolved_at < ?",
                 Timestamp.from(now.minus(retention.alerts()))));
+        // Only tokens that expired long ago. One that is still good, or only just expired, is how a reused token
+        // is recognised as reused, so it must outlast the leeway by a wide margin.
+        int tokens = attempt("refresh_tokens", failed, () -> jdbc.update(
+                "DELETE FROM refresh_tokens WHERE expires_at < ?",
+                Timestamp.from(now.minus(retention.refreshTokens()))));
         int runs = attempt("ingestion_runs", failed, () -> jdbc.update(
                 "DELETE FROM ingestion_runs WHERE started_at < ?",
                 Timestamp.from(now.minus(retention.ingestionRuns()))));
@@ -98,13 +104,14 @@ public class HistoryRetention {
         registry.counter(REMOVED, "kind", "partitions").increment(dropped.size());
         registry.counter(REMOVED, "kind", "bunching_events").increment(events);
         registry.counter(REMOVED, "kind", "service_alerts").increment(alerts);
+        registry.counter(REMOVED, "kind", "refresh_tokens").increment(tokens);
         registry.counter(REMOVED, "kind", "ingestion_runs").increment(runs);
         registry.counter(REMOVED, "kind", "route_headway_hourly").increment(hourly);
 
-        Report report = new Report(dropped, events, alerts, runs, hourly, failed);
+        Report report = new Report(dropped, events, alerts, tokens, runs, hourly, failed);
         log.info(
-                "History retention dropped={} bunchingEvents={} alerts={} ingestionRuns={} hourlyRows={} failed={}",
-                dropped, events, alerts, runs, hourly, failed);
+                "History retention dropped={} bunchingEvents={} alerts={} refreshTokens={} ingestionRuns={} hourlyRows={} failed={}",
+                dropped, events, alerts, tokens, runs, hourly, failed);
         return report;
     }
 

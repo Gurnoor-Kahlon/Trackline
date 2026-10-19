@@ -16,6 +16,7 @@ import ca.trackline.api.stops.StopController;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
@@ -41,6 +42,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(controllers = {RouteController.class, StopController.class, SearchController.class})
 @Import(GlobalExceptionHandler.class)
+// These are about what each controller returns. Whether an address needs a token is checked once, against
+// the real filter chain, in PublicEndpointsStayOpenTest.
+@AutoConfigureMockMvc(addFilters = false)
 @ActiveProfiles("test")
 class StaticApiContractTest {
 

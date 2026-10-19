@@ -48,6 +48,34 @@ public class StopQueryRepository {
                 .findFirst();
     }
 
+    /** The stops with these ids. Unknown ids are absent. */
+    public List<StopSummary> findStopsByIds(java.util.Collection<String> stopIds) {
+        if (stopIds.isEmpty()) {
+            return List.of();
+        }
+        String placeholders = String.join(", ", stopIds.stream().map(id -> "?").toList());
+        return jdbc.query(
+                """
+                SELECT s.stop_id, s.name, s.code,
+                       ST_Y(s.location::geometry) AS lat,
+                       ST_X(s.location::geometry) AS lon,
+                       s.wheelchair_boarding, s.station_id, station.name AS station_name
+                FROM stops s
+                LEFT JOIN stations station ON station.id = s.station_id
+                WHERE s.stop_id IN (%s)
+                """.formatted(placeholders),
+                (rows, index) -> new StopSummary(
+                        rows.getString("stop_id"),
+                        rows.getString("name"),
+                        rows.getString("code"),
+                        rows.getDouble("lat"),
+                        rows.getDouble("lon"),
+                        rows.getShort("wheelchair_boarding"),
+                        rows.getObject("station_id", Long.class),
+                        rows.getString("station_name")),
+                stopIds.toArray());
+    }
+
     /** The routes whose scheduled trips call at a stop. */
     public List<RouteSummary> findRoutesServing(String stopId) {
         return jdbc.query(

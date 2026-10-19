@@ -38,7 +38,8 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "7 observation route progress",
                 "8 service alerts",
                 "9 bunching events",
-                "10 history aggregates");
+                "10 history aggregates",
+                "11 users and favourites");
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
@@ -113,8 +114,11 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "bunching_events",
                 "calendar_exceptions",
                 "calendar_services",
+                "favourite_routes",
+                "favourite_stops",
                 "gtfs_feed_versions",
                 "ingestion_runs",
+                "refresh_tokens",
                 "route_headway_hourly",
                 "route_health_samples",
                 "route_scheduled_headways",
@@ -127,6 +131,7 @@ class SchemaMigrationTest extends PostgisIntegrationTest {
                 "stop_times",
                 "stops",
                 "trips",
+                "users",
                 "vehicle_observations");
     }
 

@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import javax.sql.DataSource;
 
 import ca.trackline.api.analytics.history.HistoryRetention.Report;
@@ -59,6 +60,7 @@ class HistoryRetentionIntegrationTest extends PostgisIntegrationTest {
         runs.clear();
         jdbc.update("DELETE FROM bunching_events WHERE route_id = ?", ROUTE);
         jdbc.update("DELETE FROM service_alerts WHERE source_alert_id LIKE 'ret-%'");
+        jdbc.update("DELETE FROM users WHERE email LIKE 'ret-%'");
         jdbc.update("DELETE FROM route_headway_hourly WHERE route_id = ?", ROUTE);
         for (String table : List.of(HealthSampler.TABLE, "vehicle_observations")) {
             for (Partition partition : partitions.list(table)) {
@@ -260,6 +262,39 @@ class HistoryRetentionIntegrationTest extends PostgisIntegrationTest {
                 Long.class, sourceId, firstSeen, resolved == null ? "2026-02-20T11:00:00Z" : resolved, firstSeen, resolved);
         jdbc.update("INSERT INTO service_alert_entities (alert_id, route_id) VALUES (?, ?)", id, ROUTE);
         return id;
+    }
+
+    @Test
+    void refreshTokensThatExpiredLongAgoAreDeletedAndRecentOnesAreKept() {
+        // 7 days before NOW is 13 February 2026.
+        UUID user = jdbc.queryForObject(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('ret-user@example.test', '$2a$04$' || repeat('a', 53), '2026-01-01T00:00:00Z') RETURNING id
+                """,
+                UUID.class);
+        token(user, "2026-02-01T00:00:00Z", "2026-02-05T00:00:00Z");
+        token(user, "2026-02-12T00:00:00Z", "2026-02-19T00:00:00Z");
+        // Expired a moment ago: it is how a token used again is recognised, so it must still be on file.
+        token(user, "2026-01-20T12:00:00Z", "2026-02-20T11:00:00Z");
+        // Not expired for weeks yet.
+        token(user, "2026-02-19T00:00:00Z", "2026-03-21T00:00:00Z");
+
+        Report report = retention.run(NOW);
+
+        assertThat(report.refreshTokensDeleted()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_tokens WHERE user_id = ?", Integer.class, user))
+                .isEqualTo(3);
+    }
+
+    private void token(UUID user, String issued, String expires) {
+        jdbc.update(
+                """
+                INSERT INTO refresh_tokens (user_id, family_id, token_hash, issued_at, expires_at)
+                VALUES (?, gen_random_uuid(), ?, ?::timestamptz, ?::timestamptz)
+                """,
+                user, UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", ""),
+                issued, expires);
     }
 
     @Test

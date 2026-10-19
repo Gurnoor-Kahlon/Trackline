@@ -1,4 +1,5 @@
 import { HomeAlerts } from "@/components/alerts/HomeAlerts";
+import { HomeFavourites } from "@/components/favourites/HomeFavourites";
 import { HomeNetworkStatus } from "@/components/health/HomeNetworkStatus";
 import { HomeRouteHealth } from "@/components/health/HomeRouteHealth";
 
@@ -21,6 +22,9 @@ export default function HomePage() {
           struggling.
         </p>
       </section>
+
+      {/* Only for someone signed in; for anyone else it draws nothing at all. */}
+      <HomeFavourites />
 
       <HomeNetworkStatus />
 

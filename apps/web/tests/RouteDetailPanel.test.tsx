@@ -1,13 +1,19 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useFavourites } from "@/components/favourites/FavouritesProvider";
 import { useRouteReliability } from "@/lib/health/useHealth";
+
+import { ANONYMOUS, authValue, authenticated } from "./auth/authHelpers";
 
 import { RouteDetailPanel } from "@/components/map/RouteDetailPanel";
 import type { RouteDetail, RouteStop } from "@/lib/api/types";
 
 vi.mock("@/lib/health/useHealth", () => ({ useRouteReliability: vi.fn(() => ({ status: "loading" })) }));
+vi.mock("@/components/auth/AuthProvider", () => ({ useAuth: vi.fn() }));
+vi.mock("@/components/favourites/FavouritesProvider", () => ({ useFavourites: vi.fn() }));
 
 const ROUTE: RouteDetail = {
   routeId: "501",
@@ -89,6 +95,19 @@ const BASE = {
 };
 
 describe("RouteDetailPanel", () => {
+  // Nobody is signed in unless a test says so.
+  beforeEach(() => {
+    vi.mocked(useAuth).mockReturnValue(authValue(ANONYMOUS));
+    vi.mocked(useFavourites).mockReturnValue({
+      status: "idle",
+      favourites: null,
+      isSaved: () => false,
+      isPending: () => false,
+      toggle: vi.fn(),
+      error: null,
+    });
+  });
+
   it("invites a selection when nothing is selected", () => {
     render(<RouteDetailPanel {...BASE} route={null} />);
 
@@ -153,6 +172,72 @@ describe("RouteDetailPanel", () => {
     render(<RouteDetailPanel {...BASE} route={{ ...ROUTE, supportsRealtime: false }} showReliability />);
 
     expect(screen.queryByRole("heading", { name: "How steady it has been" })).not.toBeInTheDocument();
+  });
+
+  describe("saving", () => {
+    function savedState(saved: boolean) {
+      const toggle = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(useFavourites).mockReturnValue({
+        status: "ready",
+        favourites: null,
+        isSaved: () => saved,
+        isPending: () => false,
+        toggle,
+        error: null,
+      });
+      return toggle;
+    }
+
+    it("offers a visitor a way to sign in to save the route, and nothing on each stop", () => {
+      vi.mocked(useAuth).mockReturnValue(authValue(ANONYMOUS));
+      savedState(false);
+
+      render(<RouteDetailPanel {...BASE} route={ROUTE} stops={STOPS} />);
+
+      expect(screen.getByRole("link", { name: "Sign in to save this route" })).toHaveAttribute(
+        "href",
+        "/login?next=%2Fmap%3Froute%3D501",
+      );
+      expect(screen.queryByRole("button", { name: /^Save / })).not.toBeInTheDocument();
+    });
+
+    it("lets someone signed in save the route", async () => {
+      const user = userEvent.setup();
+      vi.mocked(useAuth).mockReturnValue(authValue(authenticated()));
+      const toggle = savedState(false);
+
+      render(<RouteDetailPanel {...BASE} route={ROUTE} stops={STOPS} />);
+      await user.click(screen.getByRole("button", { name: "Save route 501" }));
+
+      expect(toggle).toHaveBeenCalledWith("routes", "501");
+    });
+
+    it("lets someone signed in save a stop, with a button beside the stop's own and not inside it", async () => {
+      const user = userEvent.setup();
+      vi.mocked(useAuth).mockReturnValue(authValue(authenticated()));
+      const toggle = savedState(false);
+
+      render(<RouteDetailPanel {...BASE} route={ROUTE} stops={STOPS} />);
+      const save = screen.getByRole("button", { name: "Save Queen St East at Woodbine Ave" });
+
+      // A button cannot hold a button: this sits next to the row's own, in the same list item.
+      expect(save.closest("li")?.querySelectorAll("button")).toHaveLength(2);
+      expect(save.parentElement?.tagName).toBe("LI");
+      await user.click(save);
+      expect(toggle).toHaveBeenCalledWith("stops", "1001");
+    });
+
+    it("selects a stop only from the stop's own button, not from the save button", async () => {
+      const user = userEvent.setup();
+      vi.mocked(useAuth).mockReturnValue(authValue(authenticated()));
+      savedState(false);
+      const onStopSelect = vi.fn();
+
+      render(<RouteDetailPanel {...BASE} route={ROUTE} stops={STOPS} onStopSelect={onStopSelect} />);
+      await user.click(screen.getByRole("button", { name: "Save Queen St East at Woodbine Ave" }));
+
+      expect(onStopSelect).not.toHaveBeenCalled();
+    });
   });
 
   it("states plainly that a subway route publishes no vehicles", () => {

@@ -58,6 +58,22 @@
             <version>${springdoc.version}</version>
         </dependency>
 
+        <!-- Authentication: the filter chain, BCrypt password hashing and the method-level rules that keep one
+             user out of another's favourites. Every read endpoint stays open; only /auth/me and /favourites
+             need a token. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- Access tokens are signed JWTs. This brings the Nimbus library that Spring Security's own JwtEncoder and
+             JwtDecoder use, so there is no second token library to keep patched and validation (signature,
+             expiry, issuer) is the framework's, not hand-written. Nothing here makes this API an OAuth server. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+
         <!-- JPA/Hibernate for entity mapping and query execution. Bulk loading in
              the static import milestone uses COPY through the JDBC connection
              rather than persist() per row. -->

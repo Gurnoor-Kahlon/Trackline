@@ -1,6 +1,7 @@
 "use client";
 
 import { RouteAlerts } from "@/components/alerts/RouteAlerts";
+import { FavouriteButton } from "@/components/favourites/FavouriteButton";
 import { ReliabilitySection } from "@/components/health/ReliabilitySection";
 import { RouteBunchingSection } from "@/components/health/RouteBunchingSection";
 import { RouteHealthSection } from "@/components/health/RouteHealthSection";
@@ -103,6 +104,13 @@ export function RouteDetailPanel({
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-ink">{route.longName}</h2>
           <p className="text-sm text-ink-muted">{direction?.headsign ?? "Direction not stated"}</p>
+          <FavouriteButton
+            kind="routes"
+            id={route.routeId}
+            name={`route ${route.shortName}`}
+            signInReturnTo={`/map?route=${encodeURIComponent(route.routeId)}`}
+            className="-ml-2 mt-1"
+          />
         </div>
       </div>
 
@@ -175,7 +183,7 @@ export function RouteDetailPanel({
                 const selected = stop.stopId === selectedStopId;
                 const accessibility = ACCESSIBILITY_LABEL[stop.wheelchairBoarding] ?? null;
                 return (
-                  <li key={stop.stopId}>
+                  <li key={stop.stopId} className="flex items-center gap-1">
                     <button
                       type="button"
                       // The full name is already the button's accessible name;
@@ -185,7 +193,7 @@ export function RouteDetailPanel({
                       aria-current={selected ? "true" : undefined}
                       onClick={() => onStopSelect(stop.stopId)}
                       className={cn(
-                        "flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                        "flex min-w-0 flex-1 items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm",
                         selected
                           ? "bg-accent-quiet text-ink"
                           : "text-ink-muted hover:bg-surface-inset hover:text-ink",
@@ -199,6 +207,8 @@ export function RouteDetailPanel({
                         <span className="shrink-0 text-xs text-ink-subtle">{accessibility}</span>
                       )}
                     </button>
+                    {/* A sibling of the row's button and not inside it: a button cannot hold a button. Nothing for a visitor. */}
+                    <FavouriteButton kind="stops" id={stop.stopId} name={stop.name} compact />
                   </li>
                 );
               })}

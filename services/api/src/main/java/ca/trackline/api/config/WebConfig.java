@@ -22,8 +22,10 @@ public class WebConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
                 .allowedOrigins(properties.cors().allowedOrigins().toArray(String[]::new))
-                .allowedMethods("GET")
-                .allowedHeaders("Content-Type", "Accept", "Last-Event-ID")
+                // The writes are the sign-in endpoints and the favourites, called with a bearer token. No cookie ever
+                // crosses origins, so credentials are not allowed: the browser will not send one to this API.
+                .allowedMethods("GET", "POST", "PUT", "DELETE")
+                .allowedHeaders("Content-Type", "Accept", "Last-Event-ID", "Authorization")
                 .maxAge(3600);
     }
 }

@@ -208,6 +208,23 @@ trackline:
       # passing at a stop. It is dated from its first sighting, so waiting loses no time.
       cycles-to-confirm: 3
 
+  # Accounts and sign-in (docs/authentication.md).
+  auth:
+    # No default, as for the database password: a missing secret must stop startup, not fall back to a value anyone
+    # reading this repository knows. At least 32 bytes; generate one with `openssl rand -base64 48`.
+    jwt-secret: ${TRACKLINE_AUTH_JWT_SECRET}
+    issuer: trackline
+    # Short, since an access token cannot be taken back once issued.
+    access-token-ttl: 15m
+    refresh-token-ttl: 30d
+    # Two tabs refreshing at once send the same token; a repeat this soon is not treated as theft.
+    refresh-reuse-leeway: 10s
+    # Each step doubles the time to check one guess. Measured on the development laptop in docs/authentication.md.
+    bcrypt-cost: 12
+    min-password-length: 10
+    max-failed-logins: 5
+    failed-login-window: 15m
+
   # History: route health recorded over time, summarised by the hour, and trimmed (docs/history-and-reliability.md).
   history:
     # The hourly summary and the retention run on a schedule. Sampling rides on the ingestion cycle.
@@ -225,6 +242,8 @@ trackline:
       observations: 14d
       bunching-events: 180d
       alerts: 180d
+      # After they expire. A token used again is recognised by being on file, so it is kept well past its expiry.
+      refresh-tokens: 7d
       # Every stored position refers to its run, so the runs outlive the positions.
       ingestion-runs: 30d
     # What a reliability figure needs before it is shown. Round starting points, not fitted: the aim is that

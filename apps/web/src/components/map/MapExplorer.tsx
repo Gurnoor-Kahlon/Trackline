@@ -66,6 +66,8 @@ const NO_STOPS: RouteStop[] = [];
 
 type MapExplorerProps = {
   routes: RouteSummary[];
+  /** A route to start with selected, from a link such as one on a saved-routes list. Ignored if it is not in `routes`. */
+  initialRouteId?: string | undefined;
 };
 
 /**
@@ -75,9 +77,14 @@ type MapExplorerProps = {
  * takes the full width and the panels move into a bottom sheet, because a 375 px
  * column split three ways is useless for all three.
  */
-export function MapExplorer({ routes }: MapExplorerProps) {
+export function MapExplorer({ routes, initialRouteId }: MapExplorerProps) {
   const [filter, setFilter] = useState<RouteFilter>(EMPTY_FILTER);
-  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  // A link can name the route to open with. One the schedule does not have is dropped, so a stale link opens the map.
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(() =>
+    initialRouteId !== undefined && routes.some((candidate) => candidate.routeId === initialRouteId)
+      ? initialRouteId
+      : null,
+  );
   const [directionId, setDirectionId] = useState(0);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);

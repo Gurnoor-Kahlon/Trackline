@@ -435,6 +435,20 @@ slower than the health endpoints. Not measured: the Redis-down path, or more tha
 Storage: events are written once and updated in place, 306 rows over the 21-minute window in
 [bunching-detection.md](bunching-detection.md). Resolved ones are deleted after 180 days.
 
+## Accounts and sign-in
+
+**Measured 2026-10-18 to 19**, on the live API from source, over `curl` to localhost with a new connection each time and BCrypt at
+the shipped cost of 12. Small samples; the full table and what they show is in [authentication.md](authentication.md).
+
+| | Min | Median | Max |
+| --- | ---: | ---: | ---: |
+| Sign in, correct password (10 requests) | 265 ms | 296 ms | 333 ms |
+| `GET /favourites` with a token (25 requests) | 6.8 ms | 8.0 ms | 37.4 ms |
+
+A sign-in is almost all BCrypt, on purpose: the cost is what makes a guessed password expensive, and it is paid once per sign-in
+and never by an ordinary page view, which carries an access token checked without touching the database. Each step of cost
+doubles the time. Not measured: sign-in under concurrent load, where a slow hash holds a request thread for a quarter of a second.
+
 ## History and reliability
 
 **Measured 2026-10-18**, Sunday evening, 19:30 to 20:19 Toronto time, on the live feed, API from source on the same

@@ -32,7 +32,8 @@ export const metadata: Metadata = {
  * what server rendering and a cached fetch are for. Geometry stays on the client,
  * because it depends on what the user selects.
  */
-export default async function MapPage() {
+export default async function MapPage({ searchParams }: { searchParams: Promise<{ route?: string }> }) {
+  const { route: initialRouteId } = await searchParams;
   let routes: RouteSummary[];
   try {
     routes = await fetchAllRoutes();
@@ -70,7 +71,7 @@ export default async function MapPage() {
 
   return (
     <Page>
-      <MapExplorer routes={routes} />
+      <MapExplorer routes={routes} initialRouteId={initialRouteId} />
     </Page>
   );
 }

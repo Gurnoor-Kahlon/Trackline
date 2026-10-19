@@ -7,8 +7,8 @@ import java.util.Optional;
 
 import ca.trackline.api.gtfs.realtime.VehicleSnapshot;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import ca.trackline.api.config.RedisConfig.LiveStateJson;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -39,10 +39,10 @@ public class RedisLiveStateStore implements LiveStateStore {
 
     public RedisLiveStateStore(
             StringRedisTemplate redis,
-            @Qualifier("liveStateObjectMapper") ObjectMapper objectMapper,
+            LiveStateJson liveStateJson,
             LiveStateProperties properties) {
         this.redis = redis;
-        this.objectMapper = objectMapper;
+        this.objectMapper = liveStateJson.mapper();
         this.ttl = properties.snapshotTtl();
     }
 

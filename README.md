@@ -37,6 +37,8 @@ behind it (see [docs/route-health.md](docs/route-health.md)). Packs of vehicles 
 (see [docs/bunching-detection.md](docs/bunching-detection.md)). Route health is recorded once a minute and
 summarised by the hour, old history is trimmed on a schedule, and a route's reliability over a past window is
 served only once enough has been recorded to say (see [docs/history-and-reliability.md](docs/history-and-reliability.md)).
+An account lets a person save routes and stops; every page and read endpoint still works without one (see
+[docs/authentication.md](docs/authentication.md)).
 
 The Next.js application renders the shell and design system: header, navigation,
 search affordance, light and dark themes, and the route, status, freshness, card,
@@ -340,6 +342,21 @@ route with any pack marked. See [docs/bunching-detection.md](docs/bunching-detec
 
 ```bash
 curl "http://localhost:8080/api/v1/routes/501/bunching"
+```
+
+### Accounts and favourites
+
+Register and sign in to save routes and stops, which then appear on the home page with how each route is running. An account
+is only for that: nothing else needs one. Passwords are stored as BCrypt hashes. A sign-in gives a 15-minute access token, kept
+in the page's memory, and a single-use refresh token, kept in a cookie the page's scripts cannot read; reusing a refresh token
+ends the whole sign-in. Whose favourites they are comes from the token and nowhere else, so no address names another person.
+The API refuses to start without `TRACKLINE_AUTH_JWT_SECRET` (see `.env.example`). See
+[docs/authentication.md](docs/authentication.md).
+
+```bash
+curl -X POST localhost:8080/api/v1/auth/register -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.test","password":"a-long-passphrase"}'
+curl localhost:8080/api/v1/favourites -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 
 ### History and reliability

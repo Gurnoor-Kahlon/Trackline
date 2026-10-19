@@ -9,6 +9,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import ca.trackline.api.auth.AccountGoneException;
+import ca.trackline.api.auth.EmailAlreadyRegisteredException;
+import ca.trackline.api.auth.InvalidCredentialsException;
+import ca.trackline.api.auth.InvalidRefreshTokenException;
+import ca.trackline.api.auth.TooManyAttemptsException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
@@ -92,6 +97,55 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setType(URI.create(TYPE_BASE + "too-many-connections"));
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(decorate(problem, request.getRequestURI()));
+    }
+
+    /** Sign-in failed. The same answer for every reason, so it cannot be used to find out who has an account. */
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidCredentials(
+            InvalidCredentialsException exception, HttpServletRequest request) {
+        return unauthorized("Sign-in failed", "invalid-credentials", exception.getMessage(), request);
+    }
+
+    /** A refresh token that cannot be used, for any reason. */
+    @ExceptionHandler(InvalidRefreshTokenException.class)
+    public ResponseEntity<ProblemDetail> handleInvalidRefreshToken(
+            InvalidRefreshTokenException exception, HttpServletRequest request) {
+        return unauthorized("Session ended", "session-ended", exception.getMessage(), request);
+    }
+
+    /** A valid token for an account that has since been removed. */
+    @ExceptionHandler(AccountGoneException.class)
+    public ResponseEntity<ProblemDetail> handleAccountGone(AccountGoneException exception, HttpServletRequest request) {
+        return unauthorized("Account not found", "account-gone", exception.getMessage(), request);
+    }
+
+    private ResponseEntity<ProblemDetail> unauthorized(
+            String title, String type, String detail, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, detail);
+        problem.setTitle(title);
+        problem.setType(URI.create(TYPE_BASE + type));
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(decorate(problem, request.getRequestURI()));
+    }
+
+    @ExceptionHandler(EmailAlreadyRegisteredException.class)
+    public ResponseEntity<ProblemDetail> handleEmailAlreadyRegistered(
+            EmailAlreadyRegisteredException exception, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+        problem.setTitle("Email already registered");
+        problem.setType(URI.create(TYPE_BASE + "email-already-registered"));
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(decorate(problem, request.getRequestURI()));
+    }
+
+    /** Too many failed sign-ins for one account. Retry-After says how long to wait. */
+    @ExceptionHandler(TooManyAttemptsException.class)
+    public ResponseEntity<ProblemDetail> handleTooManyAttempts(
+            TooManyAttemptsException exception, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage());
+        problem.setTitle("Too many attempts");
+        problem.setType(URI.create(TYPE_BASE + "too-many-attempts"));
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(Math.max(1, exception.retryAfter().toSeconds())))
                 .body(decorate(problem, request.getRequestURI()));
     }
 

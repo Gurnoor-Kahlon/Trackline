@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
+import { AuthProvider } from "@/components/auth/AuthProvider";
+import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { SkipLink } from "@/components/shell/SkipLink";
 import { ThemeScript } from "@/components/shell/ThemeScript";
@@ -45,11 +47,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeScript />
       </head>
       <body className="min-h-dvh antialiased">
-        <SkipLink />
-        <AppHeader />
-        <main id="main" className="mx-auto w-full max-w-6xl px-4 py-6 sm:py-8">
-          {children}
-        </main>
+        {/* Who is signed in, if anyone, and what they have saved. Nothing here is needed to read a page. */}
+        <AuthProvider>
+          <FavouritesProvider>
+            <SkipLink />
+            <AppHeader />
+            <main id="main" className="mx-auto w-full max-w-6xl px-4 py-6 sm:py-8">
+              {children}
+            </main>
+          </FavouritesProvider>
+        </AuthProvider>
       </body>
     </html>
   );

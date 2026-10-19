@@ -1,5 +1,19 @@
 # Deterministic test configuration: no external dependency, fixed CORS origin.
+spring:
+  datasource:
+    hikari:
+      # Every distinct test configuration keeps its own application context, and so its own pool, alive for the rest of the
+      # run, all against one PostgreSQL that allows 100 connections. At the default of 10 each, a dozen kinds of integration
+      # test exhaust it and the next context fails to start with "too many clients". None needs more than a few at once.
+      maximum-pool-size: 5
+      minimum-idle: 1
 trackline:
+  auth:
+    # A fixed value for tests only, which sign tokens that mean nothing outside them. The real secret comes from
+    # the environment and is never committed.
+    jwt-secret: test-only-secret-that-is-not-used-anywhere-else-0123456789
+    # The cheapest BCrypt allows, so a test that signs in does not spend a quarter of a second doing it.
+    bcrypt-cost: 4
   history:
     # Tests run the summary and the trim directly. A background job would race their assertions.
     enabled: false

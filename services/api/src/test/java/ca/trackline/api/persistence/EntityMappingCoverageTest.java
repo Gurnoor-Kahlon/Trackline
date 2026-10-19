@@ -36,6 +36,9 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
      * {@code bunching_events}, opened, continued and resolved by one reconciling statement per analysis, and of
      * {@code route_health_samples} and {@code route_headway_hourly}: samples are appended in batches and summarised by
      * one aggregating statement, and the summary is read into a calculation, so neither has a use for an entity.
+     * The same goes for the accounts, their refresh tokens and what they save: every statement is a keyed read or write
+     * whose condition (an address, a token hash, a user id) is the point, and each is covered by tests that go through
+     * the real database. An entity here would be a second place for those rules to live.
      *
      * <p>Partitions of vehicle_observations are excluded by prefix rather than by
      * name, since they are created per day at runtime.
@@ -43,7 +46,8 @@ class EntityMappingCoverageTest extends PostgisIntegrationTest {
     private static final Set<String> TABLES_WITHOUT_ENTITIES = Set.of(
             "spatial_ref_sys", "flyway_schema_history", "shape_points",
             "route_scheduled_headways", "vehicle_observations", "service_alerts", "service_alert_entities",
-            "bunching_events", "route_health_samples", "route_headway_hourly");
+            "bunching_events", "route_health_samples", "route_headway_hourly",
+            "users", "refresh_tokens", "favourite_routes", "favourite_stops");
 
     @Autowired
     private EntityManager entityManager;

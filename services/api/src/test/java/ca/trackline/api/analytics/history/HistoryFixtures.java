@@ -30,7 +30,7 @@ final class HistoryFixtures {
                 Duration.ofMinutes(2),
                 new HistoryProperties.Retention(
                         Duration.ofDays(90), Duration.ofDays(365), Duration.ofDays(14),
-                        Duration.ofDays(180), Duration.ofDays(180), Duration.ofDays(30)),
+                        Duration.ofDays(180), Duration.ofDays(180), Duration.ofDays(7), Duration.ofDays(30)),
                 GATE);
     }
 

@@ -504,6 +504,32 @@ describe("MapExplorer live vehicles", () => {
     });
   });
 
+  describe("opening on a route from a link", () => {
+    it("starts with the named route selected, as a link from a saved-routes list asks", async () => {
+      vi.mocked(fetchRoute).mockResolvedValue(detail("501", [0]));
+      vi.mocked(fetchRouteShape).mockResolvedValue(shape(0));
+      vi.mocked(fetchRouteStops).mockResolvedValue(STOPS);
+
+      render(<MapExplorer routes={ROUTES} initialRouteId="501" />);
+
+      await waitFor(() => expect(vi.mocked(fetchRoute)).toHaveBeenCalledWith("501", expect.anything()));
+      expect(vi.mocked(useRouteBunching)).toHaveBeenLastCalledWith("501");
+    });
+
+    it("opens with nothing selected when the route is not one the schedule has, so a stale link still opens the map", () => {
+      render(<MapExplorer routes={ROUTES} initialRouteId="no-such-route" />);
+
+      expect(vi.mocked(useRouteBunching)).toHaveBeenLastCalledWith(null);
+      expect(vi.mocked(fetchRoute)).not.toHaveBeenCalled();
+    });
+
+    it("opens with nothing selected when no route was named", () => {
+      render(<MapExplorer routes={ROUTES} />);
+
+      expect(vi.mocked(useRouteBunching)).toHaveBeenLastCalledWith(null);
+    });
+  });
+
   describe("history for the selected route", () => {
     it("shows how steady the route has been once one is chosen", async () => {
       const user = userEvent.setup();

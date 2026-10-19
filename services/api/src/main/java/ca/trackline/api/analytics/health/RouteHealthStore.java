@@ -8,10 +8,10 @@ import ca.trackline.api.analytics.health.RouteHealthModels.HealthSnapshot;
 import ca.trackline.api.common.envelope.DataSource;
 import ca.trackline.api.livestate.LiveStateProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import ca.trackline.api.config.RedisConfig.LiveStateJson;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -43,10 +43,10 @@ public class RouteHealthStore {
 
     public RouteHealthStore(
             StringRedisTemplate redis,
-            @Qualifier("liveStateObjectMapper") ObjectMapper objectMapper,
+            LiveStateJson liveStateJson,
             LiveStateProperties properties) {
         this.redis = redis;
-        this.objectMapper = objectMapper;
+        this.objectMapper = liveStateJson.mapper();
         this.ttl = properties.snapshotTtl();
     }
 

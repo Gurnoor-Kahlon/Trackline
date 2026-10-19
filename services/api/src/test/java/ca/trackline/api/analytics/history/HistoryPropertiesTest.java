@@ -33,7 +33,8 @@ class HistoryPropertiesTest {
 
     private static HistoryProperties.Retention retention(
             Duration samples, Duration hourly, Duration observations, Duration events, Duration runs) {
-        return new HistoryProperties.Retention(samples, hourly, observations, events, Duration.ofDays(180), runs);
+        return new HistoryProperties.Retention(
+                samples, hourly, observations, events, Duration.ofDays(180), Duration.ofDays(7), runs);
     }
 
     @Test

@@ -73,6 +73,7 @@ Everything that grows is trimmed on a schedule, and each rule is a property.
 | Hourly summary | 365 days | delete rows | must outlive the samples; small |
 | Resolved bunching events | 180 days | delete rows | the plan's figure; an open event is never removed |
 | Resolved service alerts | 180 days | delete rows, and the entities they named by cascade | earlier milestones left retention to this one; an alert still in force is never removed |
+| Refresh tokens | 7 days after they expire | delete rows | a sign-in never used again leaves a row; a token used again is recognised by being on file, so it is kept well past its expiry |
 | Ingestion runs | 30 days | delete rows | the plan's figure; must outlive the positions that refer to them |
 
 - **A partition is dropped only when everything in it is older than the cutoff.** The decision reads each

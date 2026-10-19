@@ -53,6 +53,8 @@ public record HistoryProperties(
      * @param observations  stored vehicle positions
      * @param bunchingEvents resolved bunching events; one still open is never removed
      * @param alerts        resolved service alerts, with the routes and stops they named; one still in force is never removed
+     * @param refreshTokens how long an expired refresh token is kept after it expires. Sign-ins that are never used
+     *                      again leave a row each, so without this the table only grows
      * @param ingestionRuns the per-cycle record of what ingestion did. Every stored position refers
      *                      to one, so these must outlive the positions
      */
@@ -62,6 +64,7 @@ public record HistoryProperties(
             @NotNull Duration observations,
             @NotNull Duration bunchingEvents,
             @NotNull Duration alerts,
+            @NotNull Duration refreshTokens,
             @NotNull Duration ingestionRuns) {
 
         public Retention {
@@ -70,6 +73,7 @@ public record HistoryProperties(
             requirePositive(observations, "retention.observations");
             requirePositive(bunchingEvents, "retention.bunchingEvents");
             requirePositive(alerts, "retention.alerts");
+            requirePositive(refreshTokens, "retention.refreshTokens");
             requirePositive(ingestionRuns, "retention.ingestionRuns");
             if (hourly.compareTo(samples) < 0) {
                 throw new IllegalArgumentException("retention.hourly cannot be shorter than retention.samples");

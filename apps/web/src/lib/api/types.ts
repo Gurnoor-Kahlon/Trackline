@@ -81,6 +81,19 @@ export type RouteShape = {
   geometry: LineStringGeometry;
 };
 
+/** A stop as the API describes it on its own, outside any route's list of stops. */
+export type StopSummary = {
+  stopId: string;
+  name: string;
+  code: string | null;
+  latitude: number;
+  longitude: number;
+  /** GTFS value as published: 0 not stated, 1 accessible, 2 not accessible. */
+  wheelchairBoarding: number;
+  stationId: number | null;
+  stationName: string | null;
+};
+
 export type RouteStop = {
   stopId: string;
   name: string;
