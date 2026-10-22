@@ -6,7 +6,7 @@
 # downloads a pinned, checksummed Maven, and the build downloads the protobuf compiler for the GTFS-Realtime schema, so the
 # build needs the network and the run does not.
 
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 WORKDIR /build
 
 # The Maven wrapper checks its download against the checksum of the .zip pinned in .mvn/wrapper, and with no unzip on the
@@ -26,7 +26,7 @@ COPY src src
 RUN --mount=type=cache,target=/root/.m2 sh ./mvnw -B -q -DskipTests package \
     && cp target/trackline-api-*.jar /build/app.jar
 
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin:25-jre AS runtime
 
 # Not root: nothing here needs it, and a flaw in the application should not be a flaw in the container.
 RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin trackline
