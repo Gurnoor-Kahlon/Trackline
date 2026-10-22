@@ -15,7 +15,7 @@ name: trackline
 
 services:
   postgres:
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:17-3.5
     container_name: trackline-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-trackline}
