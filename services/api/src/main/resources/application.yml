@@ -98,6 +98,30 @@ trackline:
     # enough that a dead ingester's last snapshot expires instead of being served
     # forever as though it were current.
     snapshot-ttl: 2m
+    # Redis is given up on for a while after this many calls in a row fail, so that a Redis that is down costs a request
+    # microseconds instead of the half-second it takes to time out. One call is then let through to see if it is back.
+    breaker-failure-threshold: 3
+    breaker-open-for: 10s
+  ingestion:
+    # Whether the instance polling the feeds is chosen by a PostgreSQL advisory lock, so a second instance stands by instead of
+    # polling again. Turning it off makes every instance poll, which only a single-instance setup should do.
+    leader-election:
+      enabled: true
+  rate-limit:
+    # A token bucket per address and kind of request: it holds `burst` requests and is refilled at `per-minute`. Chosen so
+    # a person never meets it (a page load makes a dozen requests) and a script soon does. Not applied to the live stream, which
+    # has its own caps, or to sign-in, which is limited per account.
+    enabled: true
+    reads:
+      burst: 120
+      per-minute: 120
+    search:
+      burst: 20
+      per-minute: 30
+    writes:
+      burst: 30
+      per-minute: 30
+    max-tracked: 20000
   stream:
     # Idle connections are written to this often. Short enough that a proxy with a
     # typical 60 s idle timeout never closes one, and that a vanished client is

@@ -117,6 +117,9 @@ function apiEnvironment(): NodeJS.ProcessEnv {
     TRACKLINE_GTFS_REALTIME_TRIP_UPDATE_INTERVAL: "5s",
     TRACKLINE_GTFS_REALTIME_ALERT_INTERVAL: "5s",
     TRACKLINE_HISTORY_ENABLED: "false",
+    // The tests are one visitor making hundreds of requests a minute, which is what the rate limit exists to refuse. It has its own
+    // tests; here it would only make the others fail for a reason that is not what they are about.
+    TRACKLINE_RATE_LIMIT_ENABLED: "false",
   };
 }
 

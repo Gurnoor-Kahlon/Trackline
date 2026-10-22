@@ -16,6 +16,8 @@ type SheetProps = {
 /**
  * A modal panel: a bottom sheet on small screens, a centred dialog above them.
  *
+ * Content marked `data-autofocus` receives focus when the sheet opens; without one, the platform's choice stands.
+ *
  * Built on the native `<dialog>` element so focus trapping, the top layer, the
  * backdrop and Escape-to-close come from the platform instead of from hand-rolled
  * key handlers and focus loops — which is where accessible dialogs usually go
@@ -37,6 +39,9 @@ export function Sheet({ open, onClose, title, children, className }: SheetProps)
 
     if (open && !dialog.open) {
       dialog.showModal();
+      // The platform focuses the first control, which is the close button, because it comes first. A sheet whose job is to be typed
+      // into marks that field, and it is focused instead; React's own autoFocus cannot do it, as it runs before the dialog is open.
+      dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
     } else if (!open && dialog.open) {
       dialog.close();
     }

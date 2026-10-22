@@ -14,6 +14,7 @@ import ca.trackline.api.auth.EmailAlreadyRegisteredException;
 import ca.trackline.api.auth.InvalidCredentialsException;
 import ca.trackline.api.auth.InvalidRefreshTokenException;
 import ca.trackline.api.auth.TooManyAttemptsException;
+import ca.trackline.api.ratelimit.RateLimitedException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
@@ -97,6 +98,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setType(URI.create(TYPE_BASE + "too-many-connections"));
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(decorate(problem, request.getRequestURI()));
+    }
+
+    /** A caller is making requests faster than the limit allows. Retry-After says how long until one will be let through. */
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimited(RateLimitedException exception, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage());
+        problem.setTitle("Too many requests");
+        problem.setType(URI.create(TYPE_BASE + "rate-limited"));
+        long seconds = Math.max(1, (exception.retryAfter().toMillis() + 999) / 1000);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(seconds))
                 .body(decorate(problem, request.getRequestURI()));
     }
 

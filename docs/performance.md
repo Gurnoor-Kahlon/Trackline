@@ -207,6 +207,54 @@ balancer; stability over more than the 45 minutes of this run; the web applicati
 
 ---
 
+## Hardening measurements (milestone 19)
+
+**Measured 2026-10-19, in the evening (about 17:00 Toronto time)**, on the same laptop as the release pass, with the packaged API jar run from the command line
+under the `prod` profile against a real PostgreSQL and the development Redis container, and the end-to-end suite's fixture feed standing in for the TTC (a
+2 s vehicle poll). Not the live feed: what is measured is how the API behaves, not how the feed does.
+
+### Redis down, with and without the circuit breaker
+
+The same jar twice, once with the breaker effectively switched off (`breaker-failure-threshold` of 1,000,000) and once with its defaults (three failed calls in a
+row, then ten seconds of not trying). In each, `GET /api/v1/vehicles` was timed 30 times in a row, one at a time, starting the moment the Redis container was
+stopped, and then polled until the answer was `LIVE` again after the container was started.
+
+| | Breaker off | Breaker on (default) |
+| --- | ---: | ---: |
+| The first three requests after Redis stops | 531.6, 524.9, 534.7 ms | 531.0, 527.1, 517.6 ms |
+| Every request after that | about 510 to 540 ms | **roughly 6 to 12 ms** |
+| 30 requests, total | 15.6 s | **1.84 s** |
+| 30 requests, median | 518.9 ms | **10.0 ms** |
+| Every answer | `200`, `CACHED`, `degraded: true` | `200`, `CACHED`, `degraded: true` |
+| Back to `LIVE` after Redis was started | 3.2 s | **10.4 s** |
+| Redis up, for comparison | 44.9 ms | 51.5 ms |
+
+The first three requests are the ones that find out, and pay the 500 ms timeout each; after that the breaker answers from the fallback at once. **The price is the
+last row**: the breaker does not look again until its ten-second pause is over, so recovery is slower by about the length of the pause. That is the trade the
+setting `breaker-open-for` controls, and ten seconds is a starting point, not a tuned value: short enough that a map recovers within a person's patience, long enough that a Redis that is down
+costs almost nothing. The breaker's log shows it opening (`Redis failed 3 times running; not trying it for PT10S`), one call let through when the pause ended, and its closing
+within 7 ms of that call (`Redis answered again; using it`). A late failure of a call that was already running when the circuit opened was first found to log the
+outage again and to push the end of the pause out; it no longer does, and a unit test holds that.
+
+Ingestion keeps writing history throughout, and its own Redis writes stop costing 500 ms a time while the circuit is open, which the figures above do not show.
+
+### A standby taking over
+
+Two API processes on one database, the first started first. `pg_locks` showed one advisory lock, held by the first; in 20 s of a 2 s vehicle poll the database
+recorded 9 vehicle cycles, where two instances polling would have recorded about 20, so the second was not polling. The first was then killed (a forced stop of its process, as a crash would be) and the
+second logged that it now held the lock **about 2 s later**, which is one poll interval; it carried on polling, and recorded 4 cycles in the next 8 s. With a real
+10 s interval the takeover would take up to 10 s. This was a process kill on one machine; a task that loses its network may hold the lock until the server notices the
+dead connection, which was not measured (see [deployment.md](deployment.md#what-was-not-verified)).
+
+### Rate limiting over HTTP
+
+A second instance with the read budget turned down to a burst of 5: seven `GET /api/v1/network/status` in a row from one address returned `200` five times and then
+`429`, with `Retry-After: 59`, `Content-Type: application/problem+json` and, because the request carried an `Origin`, the matching `Access-Control-Allow-Origin`. Eight
+requests to `/actuator/health` and three failed sign-ins were not counted. The cost of the check itself was not measured separately and no claim is made about it;
+`scripts/bench.mjs` now stops and says so if it is refused, because a benchmark against a limited instance would measure the limit.
+
+---
+
 ## GTFS static import
 
 **Measured 2026-09-30**, importing the live TTC archive
@@ -457,8 +505,8 @@ retention, which is why it is the fallback rather than the normal path.
 
 That latency is the honest cost of the current design: every request pays the full
 500 ms Redis timeout before falling through. The service stays up and stays honest,
-but it gets ten times slower. A circuit breaker that stops attempting Redis after
-repeated failures would fix it, and is not built yet.
+but it gets ten times slower. That was fixed by a circuit breaker; see
+[Redis down, with and without the circuit breaker](#redis-down-with-and-without-the-circuit-breaker).
 
 ### Storage
 

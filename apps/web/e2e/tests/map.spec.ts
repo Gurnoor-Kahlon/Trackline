@@ -76,6 +76,8 @@ test.describe("the map", () => {
   });
 
   test("notices when the vehicles bunch up, which needs a gap elsewhere and not just close vehicles", async ({ page }) => {
+    // The verdict follows several analyses of a feed that moves every two seconds, so this takes about half a minute by design.
+    test.slow();
     await page.goto("/map?route=501");
     await expect(selected(page)).toContainText("none running together");
 
@@ -90,6 +92,8 @@ test.describe("the map", () => {
   });
 
   test("goes back to even spacing and says so once the vehicles have spread out again", async ({ page }) => {
+    // Two such waits, one after the other.
+    test.slow();
     await setScenario("bunched");
     await page.goto("/map?route=501");
     await expect(selected(page)).toContainText("3 running within", { timeout: 40_000 });

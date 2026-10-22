@@ -68,4 +68,24 @@ describe("Sheet", () => {
 
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("focuses the field that asks to be, and not the close button that comes first", () => {
+    render(
+      <Sheet open onClose={() => {}} title="Search">
+        <input aria-label="Query" data-autofocus />
+      </Sheet>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Query" })).toHaveFocus();
+  });
+
+  it("leaves focus to the platform when nothing asks for it", () => {
+    render(
+      <Sheet open onClose={() => {}} title="Filters">
+        <input aria-label="Query" />
+      </Sheet>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Query" })).not.toHaveFocus();
+  });
 });

@@ -8,6 +8,9 @@ spring:
       maximum-pool-size: 5
       minimum-idle: 1
 trackline:
+  rate-limit:
+    # Tests make far more requests from one address than a person would. The tests of the limit itself switch it on.
+    enabled: false
   auth:
     # A fixed value for tests only, which sign tokens that mean nothing outside them. The real secret comes from
     # the environment and is never committed.

@@ -22,29 +22,40 @@ import org.springframework.stereotype.Component;
  * </ul>
  *
  * <p>Each poller is registered separately so one slow feed cannot delay another.
+ *
+ * <p>Every poll first asks {@link IngestionLeadership} whether this instance is the one that polls, so that a second instance
+ * running beside this one (during a rolling deployment, say) stands by instead of fetching every feed again.
  */
 @Component
 @ConditionalOnProperty(prefix = "trackline.gtfs.realtime", name = "enabled", havingValue = "true")
 public class IngestionScheduler {
 
     private final IngestionCycleService cycleService;
+    private final IngestionLeadership leadership;
 
-    public IngestionScheduler(IngestionCycleService cycleService) {
+    public IngestionScheduler(IngestionCycleService cycleService, IngestionLeadership leadership) {
         this.cycleService = cycleService;
+        this.leadership = leadership;
     }
 
     @Scheduled(fixedDelayString = "${trackline.gtfs.realtime.vehicle-interval}")
     public void pollVehiclePositions() {
-        cycleService.runCycle(RealtimeFeed.VEHICLE_POSITIONS);
+        if (leadership.tryHold()) {
+            cycleService.runCycle(RealtimeFeed.VEHICLE_POSITIONS);
+        }
     }
 
     @Scheduled(fixedDelayString = "${trackline.gtfs.realtime.trip-update-interval}")
     public void pollTripUpdates() {
-        cycleService.runCycle(RealtimeFeed.TRIP_UPDATES);
+        if (leadership.tryHold()) {
+            cycleService.runCycle(RealtimeFeed.TRIP_UPDATES);
+        }
     }
 
     @Scheduled(fixedDelayString = "${trackline.gtfs.realtime.alert-interval}")
     public void pollAlerts() {
-        cycleService.runCycle(RealtimeFeed.ALERTS);
+        if (leadership.tryHold()) {
+            cycleService.runCycle(RealtimeFeed.ALERTS);
+        }
     }
 }

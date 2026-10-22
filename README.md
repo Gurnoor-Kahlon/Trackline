@@ -19,6 +19,8 @@ vehicles are evenly spaced or running in a pack with a gap behind them, and how 
   but evenly spaced route makes nobody wait longer.
 - **Reliability over time.** Health is recorded every minute and summarised by the hour, so a route's reliability by hour and weekday
   can be shown. It declines to answer until enough has been recorded to say.
+- **Search.** The header's box (or the `/` key) finds a route by number or name, or a stop by name, and for a stop lists the routes that
+  call there. A near miss still finds its target.
 - **Service alerts,** with a lifecycle Trackline observes itself, because the feed publishes no start or end time.
 - **Accounts,** only for saving routes and stops. Every page and read endpoint works without one.
 
@@ -196,9 +198,9 @@ The documents for each area: [streaming](docs/streaming.md), [route progress](do
 
 | Suite | Command | Count | What it covers |
 | --- | --- | ---: | --- |
-| API | `cd services/api && ./mvnw verify` | 925 tests in 81 classes | Pure algorithm tests against real captured feeds; PostgreSQL/PostGIS and Redis in Testcontainers (migrations from scratch, spatial queries, the Redis-down path, the production profile); WireMock pipeline tests for malformed, empty, stale and failing feeds; the stream; authentication and cross-user denial |
-| Web, unit | `cd apps/web && corepack pnpm test` | 716 tests in 49 files | Components and every loading, empty, error, stale and degraded state; the live-store reducer; interpolation never extrapolating |
-| Web, end to end | `cd apps/web && corepack pnpm e2e` | 29 tests, desktop and phone | Real Chrome against the real stack |
+| API | `cd services/api && ./mvnw verify` | 973 tests in 88 classes | Pure algorithm tests against real captured feeds; PostgreSQL/PostGIS and Redis in Testcontainers (migrations from scratch, spatial queries, the Redis-down path, the production profile); WireMock pipeline tests for malformed, empty, stale and failing feeds; the stream; authentication and cross-user denial |
+| Web, unit | `cd apps/web && corepack pnpm test` | 737 tests in 51 files | Components and every loading, empty, error, stale and degraded state; the live-store reducer; interpolation never extrapolating |
+| Web, end to end | `cd apps/web && corepack pnpm e2e` | 34 tests, desktop and phone | Real Chrome against the real stack |
 | Live contract | `cd services/api && ./mvnw test -Dgroups=live -DexcludedGroups=` | run by the nightly workflow | That the real TTC feeds still parse and still carry, and still lack, the fields the design rests on |
 
 Counts as of 2026-10-19, from the last full run (the API build took about three minutes on the laptop above, with the compiler's warnings as errors). The end-to-end suite runs the **packaged API jar**, a real PostgreSQL and Redis, and the real importer, in a
@@ -227,6 +229,8 @@ Every figure below is dated, comes from a run described in [docs/performance.md]
 | Read endpoints, one client at a time (200 requests each, 14 endpoints) | median 8 to 19 ms and p95 13 to 32 ms, except search at 35 / 44 ms; the 346 KB whole-fleet snapshot 15.7 / 32.4 ms | 2026-10-19 |
 | Redis hit ratio over that benchmark (1,320 live-state reads) | 1,320 hits, 0 misses | 2026-10-19 |
 | Live stream, 25 clients, 1,500-vehicle fleet, 30 cycles | 750 of 750 deliveries; publish to receipt median 10.5 to 11.1 ms, p95 20.9 to 24.2 ms | 2026-10-19 |
+| Reading live data while Redis is down, 30 requests in a row | median **10 ms** with the circuit breaker, against 519 ms without it (`CACHED`, still `200`); the price is that it takes 10.4 s to go back to `LIVE` once Redis returns, against 3.2 s | 2026-10-19 |
+| A standby instance taking over polling when the lock holder is killed | about 2 s, at a 2 s poll interval | 2026-10-19 |
 | Production images | API 610 MB, web 393 MB on disk | 2026-10-19 |
 | The API in a container limited to 0.5 vCPU and 1 GiB | works; peak memory 413 MB of 1 GiB; medians barely move and tails grow (see performance.md) | 2026-10-19 |
 
@@ -242,16 +246,20 @@ Deliberate omissions, so nobody has to find them:
 
 - **Arrivals, stop pages and route pages.** There is no `/stops/{id}/arrivals` endpoint and no per-stop or per-route page: a route's detail is
   the panel on the map, and a stop is selected from its route. The realtime feeds' stop matching (little more than half) would limit arrivals.
-- **A search box that searches.** `GET /api/v1/search` exists and is tested; the header's field is not wired to it yet. The map filters its own list.
-- **Horizontal scaling.** Exactly one API instance may run, because the single-flight guard is in-process and the planned PostgreSQL advisory lock
-  was not built. See [docs/architecture.md](docs/architecture.md).
-- **A circuit breaker on Redis.** The API degrades correctly when Redis is down, but every request waits out Redis's 500 ms timeout first.
-- **Rate limiting.** Beyond the stream's connection caps (500 in total, 20 per address) the public API has no per-client limit. Put one in front.
+- **Stations in search results.** The API matches stations, but they are groupings Trackline derives and nothing opens one, so the search leaves them out.
+- **Scaling the API out.** A PostgreSQL advisory lock now decides which instance polls the feeds, so a second instance stands by instead of polling again and
+  takes over within a poll interval if the first goes (2 s at the 2 s interval used to test it). That makes a rolling deployment and a spare safe. It does not
+  make two instances useful at once: the live stream is fed by the instance that polls, so a standby serves reads from Redis and no live updates until it takes over.
+  See [docs/architecture.md](docs/architecture.md).
+- **Limits on sign-in and registration per address.** The API limits reads, search and writes per address and leaves account calls out, because the web application
+  relays them and every visitor would arrive from its address. Sign-in is limited per account instead; registration is not limited at all, which a rate-based rule
+  in front of the API would cover.
 - **Delay and on-time performance,** which the TTC does not publish.
 - **Subway vehicles,** which the TTC does not publish.
 
 Follow-ups worth doing next: a commute watch that tells a person when their saved route turns unstable; arrivals at stops where the stop ids
-match; the advisory lock and a Redis circuit breaker; calibrating the health thresholds against the distribution the history now collects.
+match; sharing live updates between instances (through Redis, say) so a standby can serve streams; calibrating the health thresholds against the distribution
+the history now collects.
 
 ## Layout
 

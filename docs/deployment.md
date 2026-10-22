@@ -62,15 +62,18 @@ Browser ──► Vercel (apps/web) ──► (server-side reads) ──┐
 | Part | Choice | Why |
 | --- | --- | --- |
 | Web | Vercel, root directory `apps/web` | Built for Next.js; preview deployments per pull request. |
-| API | ECS on Fargate, one task, 0.5 vCPU and 1 GiB | One task because nothing stops two API instances from polling the feeds (see below). |
+| API | ECS on Fargate, one task, 0.5 vCPU and 1 GiB | One task does the work. A second may run briefly beside it, as in a rolling deployment (see below). |
 | Database | RDS PostgreSQL 16, `postgis` and `pg_trgm` available | The schema needs both; Flyway creates them. Size the volume from [performance.md](performance.md#storage): the imported schedule alone is 719 MB. |
 | Redis | ElastiCache, or `redis:7-alpine` as a second container in the API's task | The API treats Redis as losable, so a sidecar with no persistence is a legitimate way to save the cost of a managed one, not a compromise of the design. |
 | Images | One ECR repository per image, tagged with the commit | A rollback is the previous tag. |
 
-**Exactly one API task.** The API's guard against polling a feed twice is in-process, and the PostgreSQL advisory lock the plan called
-for was not built ([architecture.md](architecture.md#where-the-design-is-thinner-than-it-looks)). Set the service's
-`minimumHealthyPercent` to 0 and `maximumPercent` to 100, so a deployment stops the old task before it starts the new one. The cost is a
-minute or two without an API on each deployment; the alternative is two tasks both ingesting while they overlap.
+**One task does the work.** A PostgreSQL advisory lock decides which API instance polls the feeds, so a second instance stands by instead of
+polling again ([architecture.md](architecture.md#where-the-design-is-thinner-than-it-looks)). That makes the ECS defaults safe: a rolling deployment
+(`minimumHealthyPercent` 100, `maximumPercent` 200) starts the new task beside the old one, the old one keeps polling until it stops, and the new one
+takes over at its next poll. Verified on a laptop with two real processes on one database: the standby took over about 2 s after the holder was killed.
+Keep the desired count at 1. A second task would serve reads from Redis and no live updates (a stream is fed by the instance that polls), so it adds
+no capacity for the thing that matters most. Connect the API to PostgreSQL directly, not through a pooler that shares sessions between clients (RDS Proxy,
+PgBouncer in transaction mode), which would break a lock that belongs to a session.
 
 ## Configuration
 
@@ -89,6 +92,11 @@ production, so set every one of them.
 
 Put the secrets in AWS Secrets Manager or SSM Parameter Store and inject them as the task definition's `secrets`, never as plain
 `environment` entries. A secret changed later signs everyone out, which is the right way to rotate it.
+
+Optional, with defaults that suit one small task (all in `application.yml`; any can be set as an environment variable, for example
+`TRACKLINE_RATE_LIMIT_READS_BURST`): `trackline.rate-limit.*` (per-address budgets for reads, search and writes), `trackline.live-state.breaker-failure-threshold`
+and `breaker-open-for` (when to stop asking a Redis that is not answering, and for how long), and `trackline.ingestion.leader-election.enabled`
+(leave on).
 
 Two things to expect to set, both **untested** because they depend on how the managed services are configured:
 
@@ -147,10 +155,13 @@ Each step names how to know it worked.
   the API going stale: `GET /api/v1/network/status` returns `ageSeconds`, and `scripts/smoke.mjs` already treats more than 120 s as a failure.
   The `prod` profile deliberately exposes only `/actuator/health`, so there are no Micrometer metrics to scrape; the per-cycle record is the
   `ingestion_runs` table and the logs.
-- **Rate limiting is not in the application.** Apart from the stream's connection caps (500 in total, 20 per address), the public API limits no
-  client. The per-address cap needs the visitor's real address, and the `prod` profile takes it from `X-Forwarded-For` as the load balancer sets it
-  ([streaming.md](streaming.md#limits)); without that, a balancer would make the whole site one address. If the API is to be public, also put a
-  rate-based rule in front of it (AWS WAF on the load balancer, for example) before announcing it.
+- **Rate limits.** The API limits each address to a burst of 120 reads, 20 searches and 30 writes, refilled at 120, 30 and 30 a minute, and refuses
+  more with `429` and a `Retry-After`; the live stream has its own caps (500 in total, 20 per address). Both need the visitor's real address, which
+  the `prod` profile takes from `X-Forwarded-For` as the load balancer sets it ([streaming.md](streaming.md#limits)); without that, a balancer would make
+  the whole site one address and the limits would cut it off. The web application's own server-side reads and its sign-in relay all come from one
+  address: sign-in is left out of the limit for that reason (it is limited per account), and the map page's few server-side reads are far below the
+  budget. Registration is not limited, so put a rate-based rule (AWS WAF on the load balancer, for example) in front of the API before announcing it.
+  When load-testing or benchmarking, start an instance with `TRACKLINE_RATE_LIMIT_ENABLED=false`, or the numbers measure the limit.
 - **Rollback:** point the service at the previous task definition revision (the previous image tag). Migrations only add, so the previous image
   stays compatible with the newer schema; a destructive change must be split across two releases. On Vercel, promote the previous deployment.
 - **Monthly import:** schedule the one-off task, or run it by hand when the TTC publishes. While it runs, the API's own cycles stall (two cycles
@@ -163,6 +174,10 @@ Each step names how to know it worked.
 
 Each of these is a reason the first deployment may need an adjustment, and none is a reason to doubt the images themselves:
 
+- That the advisory lock behaves behind RDS as it does against the container in the tests (it should: it is a plain session lock, and the instances connect
+  directly), and how long a failed task's database session takes to be noticed by the server. Here a killed process's session ended at once; a
+  task that loses its network may hold the lock until the server notices the dead connection, which can be a long time on default TCP settings, and a
+  standby cannot take over until then.
 - Creating the extensions on RDS, and TLS between the API and RDS or ElastiCache (the settings above).
 - That an ALB's address is within the private ranges Tomcat trusts for `X-Forwarded-For`, and that it appends to the header as documented. The
   behaviour was tested over real HTTP with the loopback address standing in for the proxy; if the real balancer is not trusted, every visitor

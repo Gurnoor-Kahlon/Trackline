@@ -2,16 +2,14 @@
 
 import { useEffect, useState } from "react";
 
-import { EmptyState } from "@/components/ui/EmptyState";
+import { SearchPanel } from "@/components/search/SearchPanel";
 import { Sheet } from "@/components/ui/Sheet";
 
 /**
- * Opens search.
+ * Opens search: the box in the header, and the `/` key from anywhere that is not a text field.
  *
- * The API can search routes, stops and stations, but nothing here is connected to it, so the panel says
- * so plainly and points at the one place a route can be found, instead of presenting an input that
- * silently returns nothing. The affordance and its keyboard shortcut belong to the shell and are built;
- * the query goes in when the search is.
+ * The panel itself is {@link SearchPanel}. It is only mounted while the sheet is open, so nothing is asked of the API, and no
+ * request is made, until a person has opened it and typed.
  */
 export function SearchTrigger() {
   const [open, setOpen] = useState(false);
@@ -50,10 +48,7 @@ export function SearchTrigger() {
       </button>
 
       <Sheet open={open} onClose={() => setOpen(false)} title="Search">
-        <EmptyState
-          title="Search is not built yet"
-          description="The API can search routes, stops and stations, but this box is not connected to it. To find a route, use the filter on the Map page."
-        />
+        {open ? <SearchPanel onNavigate={() => setOpen(false)} /> : null}
       </Sheet>
     </>
   );

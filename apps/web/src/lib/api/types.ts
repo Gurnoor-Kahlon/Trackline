@@ -398,3 +398,24 @@ export type RouteReliability = {
   byHour: ReliabilityHour[];
   byWeekday: ReliabilityWeekday[];
 };
+
+/** What a search hit refers to. Stations are derived groupings of stops, and nothing in the application opens one. */
+export type SearchHitKind = "ROUTE" | "STOP" | "STATION";
+
+export type SearchHit = {
+  kind: SearchHitKind;
+  /** The route id, stop id or station id to follow. */
+  id: string;
+  /** A route number, or a stop or station name. */
+  label: string;
+  /** A route's long name, or a stop's code. Null where there is none. */
+  sublabel: string | null;
+  /** Match quality, higher is better. */
+  score: number;
+};
+
+/** A stop with the routes that call there. */
+export type StopDetail = {
+  stop: StopSummary;
+  routes: RouteSummary[];
+};

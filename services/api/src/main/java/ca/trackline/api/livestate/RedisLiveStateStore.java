@@ -36,25 +36,31 @@ public class RedisLiveStateStore implements LiveStateStore {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
     private final Duration ttl;
+    private final RedisCircuitBreaker breaker;
 
     public RedisLiveStateStore(
             StringRedisTemplate redis,
             LiveStateJson liveStateJson,
-            LiveStateProperties properties) {
+            LiveStateProperties properties,
+            RedisCircuitBreaker breaker) {
         this.redis = redis;
         this.objectMapper = liveStateJson.mapper();
         this.ttl = properties.snapshotTtl();
+        this.breaker = breaker;
     }
 
     @Override
     public void replaceVehicles(List<VehicleSnapshot> vehicles, Instant feedTimestamp) {
         try {
             String document = objectMapper.writeValueAsString(new StoredSnapshot(vehicles, feedTimestamp));
-            redis.opsForValue().set(VEHICLES_KEY, document, ttl);
+            breaker.run(() -> redis.opsForValue().set(VEHICLES_KEY, document, ttl));
         } catch (JsonProcessingException cause) {
             // Serialisation failing is a bug, not an outage, so it is worth a loud
             // log — but still must not take down the ingestion cycle that called it.
             log.error("Could not serialise the vehicle snapshot", cause);
+        } catch (RedisCircuitBreaker.OpenException refused) {
+            // Redis is being left alone; the breaker has already said so once.
+            log.debug("Not writing the vehicle snapshot to Redis: the circuit is open");
         } catch (RuntimeException failure) {
             // Redis being unreachable is an expected condition. Ingestion continues
             // and keeps writing history; only the cache is lost.
@@ -65,7 +71,7 @@ public class RedisLiveStateStore implements LiveStateStore {
     @Override
     public Optional<LiveVehicles> readVehicles() {
         try {
-            String document = redis.opsForValue().get(VEHICLES_KEY);
+            String document = breaker.call(() -> redis.opsForValue().get(VEHICLES_KEY));
             if (document == null) {
                 return Optional.empty();
             }
@@ -73,6 +79,8 @@ public class RedisLiveStateStore implements LiveStateStore {
             return Optional.of(LiveVehicles.live(stored.vehicles(), stored.feedTimestamp()));
         } catch (JsonProcessingException cause) {
             log.error("Live snapshot in Redis could not be read back", cause);
+            return Optional.empty();
+        } catch (RedisCircuitBreaker.OpenException refused) {
             return Optional.empty();
         } catch (RuntimeException failure) {
             log.warn("Could not read the vehicle snapshot from Redis: {}", failure.toString());

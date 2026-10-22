@@ -193,6 +193,10 @@ deltas through a pure reducer, and keeps the last known state while disconnected
 
 ## Known limitations
 
+- A stream connected to an API instance that is standing by (another instance holds the ingestion lock) receives its snapshot and heartbeats and no
+  vehicle updates, because updates are published by the cycle that ingests. It starts receiving them when that instance takes over the lock. The
+  production deployment runs one task, and a second only briefly during a rolling deployment, where clients are reconnected anyway.
+- The live stream is not counted by the per-address request limit (`trackline.rate-limit`), which would refuse a page that reconnects; it has the connection caps above.
 - A vehicle that drifts across the edge of a `bbox` within the 5 m suppression
   window can leave a ghost until its next reported change.
 - Event ids order events within one server. They are not comparable between

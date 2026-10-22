@@ -17,9 +17,10 @@ One Spring Boot application, organised by what each package is for rather than b
 | Package | Responsibility | Document |
 | --- | --- | --- |
 | `gtfs` | Resolves, downloads and imports the static schedule in one transaction, then derives route shapes, stations and scheduled headways. Fetches and parses the three realtime feeds. | [data-sources.md](data-sources.md) |
-| `ingestion` | Polls each feed on its own interval, runs one cycle at a time per feed, and records every cycle (including the ones that find nothing new) in `ingestion_runs`. | [data-sources.md](data-sources.md) |
+| `ingestion` | Polls each feed on its own interval, runs one cycle at a time per feed, and records every cycle (including the ones that find nothing new) in `ingestion_runs`. A PostgreSQL advisory lock decides which instance polls at all. | [data-sources.md](data-sources.md) |
 | `analytics` | `progress` places each vehicle on its route and infers its direction. `health` judges how evenly a route's vehicles are spaced. `bunching` finds packs that have a gap behind them. `history` samples health, summarises it by the hour and trims what has aged out. | [route-progress.md](route-progress.md), [route-health.md](route-health.md), [bunching-detection.md](bunching-detection.md), [history-and-reliability.md](history-and-reliability.md) |
-| `livestate` | Publishes each cycle's snapshot to Redis and reads it back through three tiers (Redis, this instance's own copy, the database), saying which answered. | [performance.md](performance.md) |
+| `livestate` | Publishes each cycle's snapshot to Redis and reads it back through three tiers (Redis, this instance's own copy, the database), saying which answered. A circuit breaker stops it asking a Redis that is not answering. | [performance.md](performance.md) |
+| `ratelimit` | A token bucket per address and kind of request (reads, search, writes), refusing a caller faster than a person with a `429` and a `Retry-After`. | [streaming.md](streaming.md) |
 | `stream` | Server-Sent Events: a snapshot on connect, then only what changed, a bounded replay ring for `Last-Event-ID`, and connection caps. | [streaming.md](streaming.md) |
 | `alerts` | Gives each service alert a lifecycle Trackline observes itself, because the feed publishes no start or end. | [alerts.md](alerts.md) |
 | `auth`, `favourites` | Accounts, BCrypt, 15-minute access tokens, single-use refresh tokens, and the saved routes and stops that belong to one token's owner. | [authentication.md](authentication.md) |
@@ -103,7 +104,9 @@ These are explained where they are measured; here they are in one place, because
 | A feed is unreachable or slow | The cycle is recorded `FAILED`; the last good snapshot is served with a growing age; the next cycle tries again. | `ingestion_runs`; [performance.md](performance.md) records two failed cycles in ten |
 | A feed returns something unparseable | The whole cycle is rejected and the previous state kept. | Parser tests against real captured feeds |
 | An individual entity is invalid | It is rejected with a counted reason; the cycle succeeds. | `rejections` in the cycle log |
-| Redis is down | The API answers from its own copy, `degraded: true`, still `200`; ingestion keeps recording history; it recovers on the next cycle. It is about ten times slower while down, because each request waits out Redis's 500 ms timeout first. | Measured and recorded in [performance.md](performance.md); a circuit breaker is not built |
+| Redis is down | The API answers from its own copy, `degraded: true`, still `200`; ingestion keeps recording history. After three failed calls in a row a circuit breaker stops asking Redis for ten seconds, so a read costs about 10 ms instead of the 519 ms it took to time out, and one call is then let through to see whether Redis is back. The price is a slower return to `LIVE`. | Measured 2026-10-19 and recorded in [performance.md](performance.md#redis-down-with-and-without-the-circuit-breaker); `RedisCircuitBreakerTest`, `RedisCircuitBreakerOutageIntegrationTest` |
+| An API instance dies | Its PostgreSQL session ends, which releases the advisory lock; a standby takes the lock at its next poll and carries on polling. | Measured 2026-10-19: about 2 s at a 2 s poll; `IngestionLeadershipIntegrationTest` |
+| A caller makes requests faster than a person | It is refused with `429` and a `Retry-After`, with the CORS headers a browser needs to read the refusal. The live stream, sign-in and the health endpoint are not counted. | `RateLimitFilterTest`, `RateLimitIntegrationTest`; real HTTP on 2026-10-19 |
 | The static import fails | The transaction rolls back and the previous schedule stays active. | Integration test; [data-sources.md](data-sources.md) |
 | A stream client disconnects | Its emitter is released; on reconnect it is replayed what it missed only if that can be proved complete, otherwise sent a fresh snapshot. | [streaming.md](streaming.md) |
 | The browser cannot reach the stream | The page stops saying it is live, says it is reconnecting, and recovers by itself when the stream can be opened again, without a reload. | End-to-end test `live.spec.ts` |
@@ -114,17 +117,27 @@ Not listed because it has not been exercised: a PostgreSQL outage under load.
 
 These are deliberate limits, and the deployment plan has to respect each of them.
 
-- **One API instance.** The in-process single-flight guard stops one instance polling a feed twice, but nothing stops two
-  instances both polling. The plan called for a PostgreSQL advisory lock for this and it was not built, so the API must run as
-  exactly one task. Scaling it out would double-ingest until that lock exists (observations are deduplicated by a unique key, so
-  the cost is wasted work and doubled load rather than wrong data, but that is a reading of the schema and not something measured).
+- **One instance does the work.** The in-process guard stops one process running two cycles of a feed at once, and a PostgreSQL
+  session-level advisory lock (`IngestionLeadership`) stops two processes both polling: whoever holds it polls, runs the hourly history jobs and
+  feeds the live streams, and the others stand by and try again at each of their polls. The lock belongs to a database session, so a crashed
+  or killed instance releases it by dying, with no lease to expire. What this buys is safety, not scale: a rolling deployment may overlap two
+  tasks, a spare takes over within a poll interval, and a second instance serves reads from Redis, which is shared. What it does not buy is a
+  second instance that is useful at once, because the live stream is fed by the cycle that ingests, so a stream connected to a standby stays quiet
+  until that instance takes over. Making streams work from a standby would mean publishing updates through Redis, and has not been done. The
+  leader keeps one database connection for its life, so the pool is one smaller than configured, and a connection pooler that shares sessions
+  between clients (RDS Proxy, PgBouncer in transaction mode) would break a session lock; connect to the database directly.
 - **The one-off import also polls.** `--import-gtfs` starts the same application, scheduler included. Run it with
   `TRACKLINE_GTFS_REALTIME_ENABLED=false` and `TRACKLINE_HISTORY_ENABLED=false`, as the compose file's notes and
   [deployment.md](deployment.md) do.
 - **An import stalls the running API's cycles.** On 2026-10-19 two cycles that began while a full import was loading took 117 s each
   (they finished when the import did). The API kept answering from the last snapshot. A monthly import makes this a few minutes of
   stale data a month, which is why it is documented rather than engineered away.
-- **No circuit breaker on Redis,** as above.
+- **Rate limits are in memory.** Each instance counts for itself and a restart forgets, which is the right order of accuracy for a limit meant to
+  stop a runaway script and not to meter anyone. They are per address, so they depend on the address being the visitor's (see
+  [streaming.md](streaming.md)). They leave out sign-in and the other account calls, because the web application relays those and every visitor
+  would arrive from one address; sign-in is limited per account instead, and registration is not limited. When the table of tracked addresses is
+  full of callers who are still being limited, a new address goes through untracked, because refusing newcomers to protect the table would let a
+  flood of addresses take the site down instead.
 - **Reads are served from a whole-snapshot document.** The cost of `/vehicles` is dominated by deserialising the snapshot, so a
   filtered request is barely cheaper than an unfiltered one. At the measured sizes that is fine ([performance.md](performance.md));
   it is the first thing to change if the fleet or the traffic grows a lot.

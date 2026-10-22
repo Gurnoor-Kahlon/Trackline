@@ -46,6 +46,14 @@ for (const [name, path] of ENDPOINTS) {
     const body = await response.text();
     const elapsed = performance.now() - started;
     status = response.status;
+    if (status === 429) {
+      console.error(
+        `${path} was refused with 429 after ${index} requests: the API limits how fast one address may read.
+` +
+          "Benchmark an instance started with TRACKLINE_RATE_LIMIT_ENABLED=false, or the numbers would measure the limit and not the endpoint.",
+      );
+      process.exit(1);
+    }
     if (index >= warmup) {
       times.push(elapsed);
       bytes = Buffer.byteLength(body);

@@ -1,10 +1,17 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppHeader } from "@/components/shell/AppHeader";
 import { SearchTrigger } from "@/components/shell/SearchTrigger";
 import { SkipLink } from "@/components/shell/SkipLink";
+import { searchTransit } from "@/lib/api/search";
+
+vi.mock("@/lib/api/search", () => ({ searchTransit: vi.fn(), fetchStopDetail: vi.fn(), SEARCH_RESULT_LIMIT: 15 }));
+
+beforeEach(() => {
+  vi.mocked(searchTransit).mockReset();
+});
 
 describe("SkipLink", () => {
   it("is the first thing a keyboard user reaches", async () => {
@@ -54,17 +61,26 @@ describe("SearchTrigger", () => {
     expect(screen.getByRole("heading", { name: "Search" })).toBeInTheDocument();
   });
 
-  it("says plainly that search is not built yet, and where a route can be found", async () => {
+  it("opens a search box, and asks the API nothing until something is typed", async () => {
     const user = userEvent.setup();
     render(<SearchTrigger />);
 
     await user.click(screen.getByRole("button", { name: /route, stop, or station/i }));
 
-    // An input that silently returns nothing would imply the feature works and
-    // that Toronto has no matching routes.
-    expect(screen.getByText(/Search is not built yet/)).toBeInTheDocument();
-    expect(screen.getByText(/use the filter on the Map page/)).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Search routes and stops" })).toBeInTheDocument();
+    expect(searchTransit).not.toHaveBeenCalled();
+  });
+
+  it("closes when a result is followed", async () => {
+    vi.mocked(searchTransit).mockResolvedValue([{ kind: "ROUTE", id: "501", label: "501", sublabel: "Queen", score: 1 }]);
+    const user = userEvent.setup();
+    render(<SearchTrigger />);
+    await user.keyboard("/");
+    await user.type(screen.getByRole("searchbox"), "501");
+
+    await user.click(await screen.findByRole("link", { name: /501\s*Queen/ }));
+
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 
   it("does not hijack the slash key while typing in a field", async () => {
