@@ -6,7 +6,7 @@
 # build argument and an image is built for one place. API_INTERNAL_URL, read when the server runs, is where the web
 # application's own server reaches the API, which on a private network is not the same address.
 
-FROM node:24-slim AS deps
+FROM node:25-slim AS deps
 RUN corepack enable
 WORKDIR /app
 # The lockfile and manifests alone, so the dependencies are downloaded again only when they change.
@@ -20,7 +20,7 @@ ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
     NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 
-FROM node:24-slim AS runtime
+FROM node:25-slim AS runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
